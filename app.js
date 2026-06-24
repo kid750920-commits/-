@@ -1433,6 +1433,27 @@
   }
 
 
+  function clearCaseNotifications(caseId){
+    if(!caseId) return;
+    const relatedNoticeIds = new Set();
+    state.data.case_replies
+      .filter(r => r.case_id === caseId)
+      .forEach(r => relatedNoticeIds.add(`reply-${r.id}`));
+    state.data.case_logs
+      .filter(l => l.case_id === caseId)
+      .forEach(l => relatedNoticeIds.add(`restock-${l.id}`));
+
+    const map = readNotifications();
+    let changed = false;
+    Object.keys(map).forEach(id => {
+      if(id.includes(caseId) || relatedNoticeIds.has(id)){
+        delete map[id];
+        changed = true;
+      }
+    });
+    if(changed) saveNotifications(map);
+  }
+
   function setNewCaseType(typeName){
     showSection('newCase');
     const type = CASE_TYPES.find(t => t.value === typeName);
@@ -2128,6 +2149,7 @@
   async function deleteCase(c){
     if(!canDeleteCase(c)) return toast('只有案件建立者或管理者可以刪除案件', 'bad');
     if(!confirm('確定刪除此案件？附件與回覆紀錄不會自動刪除 Storage 檔案。')) return;
+    clearCaseNotifications(c.id);
     await dbDelete('cases', c.id);
     state.data.case_items = state.data.case_items.filter(i => i.case_id !== c.id);
     state.data.case_replies = state.data.case_replies.filter(r => r.case_id !== c.id);
