@@ -1,20 +1,20 @@
+import { getRuntimeConfig } from './modules/runtime-config.js';
+import { APP_KEYS, CLOUD_TABLES, INTERNAL_AUTH_DOMAIN, PAGE_SIZES } from './modules/app-constants.js';
+import { DATE_FMT, DATE_TIME_FMT } from './modules/date-formatters.js';
+
 (() => {
   'use strict';
 
-  const RUNTIME_CONFIG = window.VENDOR_CASE_CONFIG || {};
+  const RUNTIME_CONFIG = getRuntimeConfig();
   const DEFAULT_SUPABASE_URL = RUNTIME_CONFIG.supabaseUrl || '';
   const DEFAULT_SUPABASE_ANON_KEY = RUNTIME_CONFIG.supabaseAnonKey || '';
   const LOCK_SUPABASE_CONFIG = !!RUNTIME_CONFIG.lockConfig;
-  const STORAGE_KEY = 'vendor_case_system_phase2_localdb_v1';
-  const CONFIG_KEY = 'vendor_case_system_phase1_config';
-  const NOTIFY_KEY = 'vendor_case_system_phase1_notifications_read_v1';
-  const DRAFT_KEY = 'vendor_case_system_new_case_draft_v1';
-  const CASE_LIST_PAGE_SIZE = 100;
-  const CLOUD_PAGE_SIZE = 1000;
-  const INTERNAL_AUTH_DOMAIN = 'vcs.local';
-  const CLOUD_TABLES = ['vendors','locations','profiles','cases','case_items','case_replies','case_attachments','case_logs'];
-  const DATE_FMT = new Intl.DateTimeFormat('zh-TW', { year:'numeric', month:'2-digit', day:'2-digit' });
-  const DATE_TIME_FMT = new Intl.DateTimeFormat('zh-TW', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+  const STORAGE_KEY = APP_KEYS.storage;
+  const CONFIG_KEY = APP_KEYS.config;
+  const NOTIFY_KEY = APP_KEYS.notificationsRead;
+  const DRAFT_KEY = APP_KEYS.newCaseDraft;
+  const CASE_LIST_PAGE_SIZE = PAGE_SIZES.caseList;
+  const CLOUD_PAGE_SIZE = PAGE_SIZES.cloudFetch;
   const LCD_CASE_TYPE = '液晶面板申請(保固內)';
 
   const CASE_TYPES = [

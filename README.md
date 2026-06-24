@@ -1,27 +1,38 @@
-# 管理系統
+# 新管理系統
 
-正式線上版本：
-
+正式網址：
 https://xin-guan-li-xi-tong.vercel.app
 
-## 主版本規則
+## 同步方式
 
-- 程式碼：以 GitHub repository 為唯一主版本。
-- 正式部署：由 Vercel 連接 GitHub 自動部署。
-- 使用資料：案件、帳號、液晶申請、附件與照片都存放在 Supabase。
-- 本機資料夾只作為開發工作區，不再用手動複製資料夾當作版本同步方式。
+- 程式碼以 GitHub repository 為主。
+- 正式網站由 Vercel 部署。
+- 使用資料、帳號、附件紀錄放在 Supabase。
+- 不同電腦操作 Codex 前，先同步 GitHub 最新版本，避免檔案不一致。
 
-## 主要檔案
+## 專案結構
 
-- `index.html`：系統頁面結構。
-- `app.js`：主要功能與 Supabase 資料操作。
+- `index.html`：主要 HTML 畫面。
+- `js/main.js`：前端 ES module 入口。
+- `js/app.js`：主要業務邏輯，後續會逐步拆分。
+- `js/modules/`：共用常數、runtime config、日期格式器等模組。
 - `styles.css`：畫面樣式。
-- `config.js`：Supabase Project URL 與 publishable key。
-- `vercel.json`：Vercel 靜態網站部署設定。
-- `.vercelignore`：Vercel 部署排除檔案。
+- `config.js`：讀取 Vercel 注入的 Supabase Project URL / anon key。
+- `api/env.js`：Vercel runtime 注入環境變數。
+- `database/patches/`：Supabase SQL patch。
+- `vercel.json`：Vercel 部署設定。
+- `.vercelignore`：Vercel 部署排除設定。
 
-## 開發原則
+## 本機測試
 
-每次在不同電腦修改前，先從 GitHub 更新最新版本。修改完成後，提交並推送到 GitHub，再讓 Vercel 自動部署。
+前端已改用 ES module。正式 Vercel 網址可直接使用；本機測試請用 HTTP server 開啟，不建議直接用 `file://` 開啟，部分瀏覽器會阻擋 module import。
 
-詳細流程請看 `SYNC_WORKFLOW.md`。
+可使用：
+
+```powershell
+python -m http.server 4177 --bind 127.0.0.1
+```
+
+若系統沒有 Python，可使用 Codex bundled Python 或直接測試正式網址。
+
+同步流程詳見 `SYNC_WORKFLOW.md`。
