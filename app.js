@@ -9,6 +9,8 @@
   const CONFIG_KEY = 'vendor_case_system_phase1_config';
   const NOTIFY_KEY = 'vendor_case_system_phase1_notifications_read_v1';
   const DRAFT_KEY = 'vendor_case_system_new_case_draft_v1';
+  const CASE_LIST_PAGE_SIZE = 100;
+  const CLOUD_PAGE_SIZE = 1000;
   const INTERNAL_AUTH_DOMAIN = 'vcs.local';
   const CLOUD_TABLES = ['vendors','locations','profiles','cases','case_items','case_replies','case_attachments','case_logs'];
   const DATE_FMT = new Intl.DateTimeFormat('zh-TW', { year:'numeric', month:'2-digit', day:'2-digit' });
@@ -40,6 +42,10 @@
     reminderFilter: 'all',
     notificationFilter: 'all',
     followupFilter: 'all',
+    caseListLimit: CASE_LIST_PAGE_SIZE,
+    modalTab: 'basic',
+    caseDetailLoaded: { case_attachments:new Set(), case_logs:new Set() },
+    caseDetailLoading: {},
     automationFieldsAvailable: true,
     draftRestored: false,
     realtimeChannel: null,
@@ -470,7 +476,10 @@
       clearNewCaseDraft();
       setTimeout(resetItemsEditor,0);
     });
-    ['filterKeyword','filterType','filterStatus','filterVendor','filterLocation','filterOverdue'].forEach(id => $(id).addEventListener('input', renderCaseList));
+    ['filterKeyword','filterType','filterStatus','filterVendor','filterLocation','filterOverdue'].forEach(id => $(id).addEventListener('input', () => {
+      resetCaseListLimit();
+      renderCaseList();
+    }));
     $('exportCsvBtn').addEventListener('click', exportCsv);
     $('addVendorBtn').addEventListener('click', addVendor);
     $('addLocationBtn').addEventListener('click', addLocation);
@@ -609,16 +618,75 @@
     const limitedTables = { case_attachments:500, case_logs:300 };
     for(const table of mainTables){
       const orderCol = table === 'cases' ? 'updated_at' : 'created_at';
-      const { data: rows, error } = await state.client.from(table).select('*').order(orderCol, { ascending:false });
-      if(error) throw error;
-      data[table] = rows || [];
+      data[table] = await fetchCloudRows(table, { orderCol, ascending:false });
     }
     for(const [table, limit] of Object.entries(limitedTables)){
-      const { data: rows, error } = await state.client.from(table).select('*').order('created_at', { ascending:false }).limit(limit);
-      if(error) throw error;
-      data[table] = rows || [];
+      data[table] = await fetchCloudRows(table, { orderCol:'created_at', ascending:false, limit });
     }
     state.data = data;
+    resetCaseDetailLoaded();
+  }
+
+  async function fetchCloudRows(table, options={}){
+    const pageSize = Math.max(1, Number(options.pageSize || CLOUD_PAGE_SIZE));
+    const limit = Number(options.limit || 0);
+    const orderCol = options.orderCol || 'created_at';
+    const ascending = !!options.ascending;
+    const rows = [];
+    let from = 0;
+    while(true){
+      const remaining = limit ? Math.max(limit - rows.length, 0) : pageSize;
+      if(limit && remaining <= 0) break;
+      const size = limit ? Math.min(pageSize, remaining) : pageSize;
+      const to = from + size - 1;
+      const { data: batch, error } = await state.client
+        .from(table)
+        .select('*')
+        .order(orderCol, { ascending })
+        .range(from, to);
+      if(error) throw error;
+      const chunk = batch || [];
+      rows.push(...chunk);
+      if(chunk.length < size) break;
+      from += size;
+    }
+    return rows;
+  }
+
+  function resetCaseDetailLoaded(){
+    state.caseDetailLoaded = { case_attachments:new Set(), case_logs:new Set() };
+    state.caseDetailLoading = {};
+  }
+
+  function mergeCloudRows(table, rows){
+    const byId = new Map((state.data[table] || []).map(row => [row.id, row]));
+    (rows || []).forEach(row => byId.set(row.id, row));
+    state.data[table] = [...byId.values()].sort((a,b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  }
+
+  async function ensureCaseDetailRows(caseId, table, tab){
+    if(!state.online || !state.client || !caseId) return;
+    if(!state.caseDetailLoaded[table]) state.caseDetailLoaded[table] = new Set();
+    if(state.caseDetailLoaded[table].has(caseId)) return;
+    const key = `${table}:${caseId}`;
+    if(state.caseDetailLoading[key]) return;
+    state.caseDetailLoading[key] = true;
+    try{
+      const { data: rows, error } = await state.client
+        .from(table)
+        .select('*')
+        .eq('case_id', caseId)
+        .order('created_at', { ascending:false });
+      if(error) throw error;
+      mergeCloudRows(table, rows || []);
+      state.caseDetailLoaded[table].add(caseId);
+      if(state.selectedCase?.id === caseId && state.modalTab === tab) renderCaseModal(tab);
+    }catch(err){
+      console.error(err);
+      errorBanner(err.message || '案件明細載入失敗', $('modalContent'));
+    }finally{
+      delete state.caseDetailLoading[key];
+    }
   }
 
   function startRealtimeSync(){
@@ -1342,7 +1410,8 @@
       });
     }
     renderCaseListStats(cases);
-    $('caseTableBody').innerHTML = cases.map(c => {
+    const visibleRows = cases.slice(0, state.caseListLimit);
+    $('caseTableBody').innerHTML = visibleRows.map(c => {
       const calc = calcCase(c);
       return `<tr class="${priorityRowClass(c.priority, calc)}">
         <td><b>${safe(c.case_no)}</b><div class="small muted">${dateText(c.created_at)}</div></td>
@@ -1359,6 +1428,27 @@
       </tr>`;
     }).join('') || '<tr><td colspan="11" class="empty">沒有符合條件的案件</td></tr>';
 
+    renderCaseListPager(cases.length, visibleRows.length);
+  }
+
+  function resetCaseListLimit(){
+    state.caseListLimit = CASE_LIST_PAGE_SIZE;
+  }
+
+  function loadMoreCases(){
+    state.caseListLimit += CASE_LIST_PAGE_SIZE;
+    renderCaseList();
+  }
+
+  function renderCaseListPager(total, shown){
+    const el = $('caseListPager');
+    if(!el) return;
+    if(total <= shown){
+      el.innerHTML = total ? `<span class="small muted">已顯示全部 ${total} 筆</span>` : '';
+      return;
+    }
+    el.innerHTML = `<span class="small muted">目前顯示 ${shown} / ${total} 筆</span><button class="btn ghost small-btn" id="loadMoreCasesBtn">載入更多</button>`;
+    $('loadMoreCasesBtn')?.addEventListener('click', loadMoreCases);
   }
 
   function renderCaseListStats(cases){
@@ -1490,7 +1580,24 @@
         read:!!reads[id]
       });
     });
-    return items.sort((a,b) => Number(a.read) - Number(b.read) || new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    return items.sort((a,b) =>
+      Number(a.read) - Number(b.read)
+      || notificationPriority(a) - notificationPriority(b)
+      || new Date(b.created_at || 0) - new Date(a.created_at || 0)
+    );
+  }
+
+  function notificationPriority(n){
+    const order = {
+      reviewRequest:0,
+      urgent:1,
+      vendorReminder:2,
+      reviewRejected:3,
+      reviewPending:4,
+      restock:5,
+      reply:6
+    };
+    return order[n.kind] ?? 9;
   }
 
   function updateNotificationUi(){
@@ -1539,8 +1646,10 @@
   }
 
   function notificationRow(n){
+    const originalKind = n.kind;
     if(n.kind === 'reviewPending') n = {...n, kind:'reviewRequest'};
-    const badge = n.kind === 'urgent' ? '<span class="badge bad-b">急件催覆</span>' : n.kind === 'vendorReminder' ? '<span class="badge violet-b">廠商未回覆</span>' : n.kind === 'restock' ? '<span class="badge blue-b">補料通知</span>' : n.kind === 'reviewRequest' ? '<span class="badge warn-b">待審核</span>' : n.kind === 'reviewRejected' ? '<span class="badge bad-b">審核退回</span>' : '<span class="badge warn-b">新回覆</span>';
+    let badge = n.kind === 'urgent' ? '<span class="badge bad-b">急件催覆</span>' : n.kind === 'vendorReminder' ? '<span class="badge violet-b">廠商未回覆</span>' : n.kind === 'restock' ? '<span class="badge blue-b">補料通知</span>' : n.kind === 'reviewRequest' ? '<span class="badge warn-b">待審核</span>' : n.kind === 'reviewRejected' ? '<span class="badge bad-b">審核退回</span>' : '<span class="badge warn-b">新回覆</span>';
+    if(originalKind === 'reviewPending') badge = '<span class="badge warn-b">等待審核</span>';
     const read = n.read ? '<span class="badge good-b">已讀/已知悉</span>' : '<span class="badge bad-b">未讀</span>';
     const targetTab = n.kind === 'restock' ? 'items' : (n.kind === 'reviewRequest' || n.kind === 'reviewRejected') ? 'basic' : 'replies';
     const targetText = n.kind === 'restock' ? '查看補料對應' : (n.kind === 'reviewRequest' || n.kind === 'reviewRejected') ? '查看審核資料' : '查看案件回覆';
@@ -2000,6 +2109,7 @@
 
   function renderCaseModal(activeTab='basic'){
     const c = state.selectedCase; if(!c) return;
+    state.modalTab = activeTab;
     qsa('.modal-tabs .tab').forEach(b => {
       b.classList.toggle('active', b.dataset.modalTab === activeTab);
       b.onclick = () => renderCaseModal(b.dataset.modalTab);
@@ -2010,6 +2120,8 @@
     if(activeTab === 'attachmentsTab') content.innerHTML = modalAttachments(c);
     if(activeTab === 'replies') content.innerHTML = modalReplies(c);
     if(activeTab === 'caseLogs') content.innerHTML = modalLogs(c);
+    if(activeTab === 'attachmentsTab') ensureCaseDetailRows(c.id, 'case_attachments', activeTab);
+    if(activeTab === 'caseLogs') ensureCaseDetailRows(c.id, 'case_logs', activeTab);
     renderModalHeaderActions(c);
     bindModalEvents(activeTab, c);
   }
@@ -2169,8 +2281,10 @@
 
   function modalAttachments(c){
     const files = state.data.case_attachments.filter(a => a.case_id === c.id);
+    const loading = state.online && !state.caseDetailLoaded.case_attachments?.has(c.id) ? '<div class="hint">正在載入此案件的完整附件...</div>' : '';
     return `<div class="modal-tab-content active">
       ${automationStatusHtml(c)}
+      ${loading}
       <div class="grid-3">${files.map(fileCard).join('') || '<div class="empty">尚無附件</div>'}</div>
       ${canEditCase(c)?`<div class="panel"><div class="field"><label>新增附件</label><input type="file" id="mFiles" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.mp4,.mov"></div><button class="btn" id="uploadMoreBtn">上傳附件</button></div>`:''}
     </div>`;

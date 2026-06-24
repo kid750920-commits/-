@@ -323,6 +323,13 @@ a{color:var(--blue)}
 .help-panel .hint{margin:0;border:0;border-radius:0;background:transparent}
 
 .table-wrap{overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.list-pager{
+  display:flex;
+  justify-content:flex-end;
+  align-items:center;
+  gap:12px;
+  padding:12px 2px 0;
+}
 table{width:100%;border-collapse:collapse;min-width:980px}
 th,td{
   padding:11px 10px;
