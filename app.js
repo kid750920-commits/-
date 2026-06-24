@@ -105,7 +105,10 @@
   }
   function reviewStatus(c){
     if(!isPartCase(c)) return REVIEW_STATUS.approved;
-    return c?.review_status || REVIEW_STATUS.approved;
+    if(c?.review_status) return c.review_status;
+    if(c?.status === '待負責人審核') return REVIEW_STATUS.pending;
+    if(c?.status === '審核退回') return REVIEW_STATUS.rejected;
+    return REVIEW_STATUS.approved;
   }
   function needsReview(c){
     return isPartCase(c) && reviewStatus(c) === REVIEW_STATUS.pending;
@@ -1413,6 +1416,15 @@
           read:!!reads[id]
         });
       }
+      if(needsReview(c) && caseApplicantMatchesCurrentUser(c) && !canReviewCase(c)){
+        const id = `review-pending-${c.id}-${c.updated_at || c.created_at || ''}`;
+        items.push({
+          id, kind:'reviewPending', title:'維修料品申請等待審核', case:c, created_at:c.updated_at || c.created_at,
+          message:'你的維修料品申請已送出，正在等待維修料品負責人或管理者審核。審核通過後才會進入總表。',
+          meta:`審核負責人：${c.owner_name || partOwnerName() || '-'}｜地點：${locationName(c.location_id)}｜${dateTimeText(c.created_at)}`,
+          read:!!reads[id]
+        });
+      }
       if(reviewRejected(c) && caseApplicantMatchesCurrentUser(c)){
         const id = `review-rejected-${c.id}-${c.reviewed_at || c.updated_at || ''}`;
         items.push({
@@ -1503,14 +1515,14 @@
     const f = state.notificationFilter;
     if(f === 'unread') items = items.filter(n => !n.read);
     if(f === 'reply') items = items.filter(n => n.kind === 'reply');
-    if(f === 'review') items = items.filter(n => n.kind === 'reviewRequest' || n.kind === 'reviewRejected');
+    if(f === 'review') items = items.filter(n => n.kind === 'reviewRequest' || n.kind === 'reviewPending' || n.kind === 'reviewRejected');
     if(f === 'urgent') items = items.filter(n => n.kind === 'urgent');
     if(f === 'restock') items = items.filter(n => n.kind === 'restock');
     if(f === 'vendorReminder') items = items.filter(n => n.kind === 'vendorReminder');
     const allItems = getNotificationItems();
     const unread = allItems.filter(n => !n.read).length;
     const replyUnread = allItems.filter(n => n.kind === 'reply' && !n.read).length;
-    const reviewUnread = allItems.filter(n => (n.kind === 'reviewRequest' || n.kind === 'reviewRejected') && !n.read).length;
+    const reviewUnread = allItems.filter(n => (n.kind === 'reviewRequest' || n.kind === 'reviewPending' || n.kind === 'reviewRejected') && !n.read).length;
     const urgentUnread = allItems.filter(n => n.kind === 'urgent' && !n.read).length;
     const vendorReminderUnread = allItems.filter(n => n.kind === 'vendorReminder' && !n.read).length;
     const restockUnread = allItems.filter(n => n.kind === 'restock' && !n.read).length;
@@ -1527,6 +1539,7 @@
   }
 
   function notificationRow(n){
+    if(n.kind === 'reviewPending') n = {...n, kind:'reviewRequest'};
     const badge = n.kind === 'urgent' ? '<span class="badge bad-b">急件催覆</span>' : n.kind === 'vendorReminder' ? '<span class="badge violet-b">廠商未回覆</span>' : n.kind === 'restock' ? '<span class="badge blue-b">補料通知</span>' : n.kind === 'reviewRequest' ? '<span class="badge warn-b">待審核</span>' : n.kind === 'reviewRejected' ? '<span class="badge bad-b">審核退回</span>' : '<span class="badge warn-b">新回覆</span>';
     const read = n.read ? '<span class="badge good-b">已讀/已知悉</span>' : '<span class="badge bad-b">未讀</span>';
     const targetTab = n.kind === 'restock' ? 'items' : (n.kind === 'reviewRequest' || n.kind === 'reviewRejected') ? 'basic' : 'replies';
