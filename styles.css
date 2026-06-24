@@ -115,6 +115,11 @@ a{color:var(--blue)}
   line-height:1.2;
 }
 .btn:hover{filter:brightness(.96)}
+.btn:disabled{
+  opacity:.62;
+  cursor:not-allowed;
+  filter:none;
+}
 .btn.ghost{
   background:var(--surface);
   border-color:var(--line-strong);

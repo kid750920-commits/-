@@ -844,6 +844,9 @@
   async function createCase(e){
     e.preventDefault();
     if(!canCreate()) return toast('目前角色不能新增案件', 'bad');
+    const busyButton = e.submitter || $('caseForm')?.querySelector('button[type="submit"]');
+    if(!beginButtonBusy(busyButton, '建立中...')) return;
+    toast('正在建立案件，請稍候...', 'warn');
     try{
       const case_type = $('caseType').value;
       const type = CASE_TYPES.find(t => t.value === case_type) || CASE_TYPES[0];
@@ -931,6 +934,7 @@
       showSection('caseList');
       toast(existingLcdCase ? '已併入同標題液晶案件' : partReviewRequired ? '申請單已建立，會通知負責人審核' : '案件已建立');
     }catch(err){ console.error(err); toast(err.message || '建立案件失敗', 'bad'); }
+    finally{ endButtonBusy(busyButton); }
   }
 
   function collectItems(){
@@ -977,6 +981,36 @@
         await dbInsert('case_attachments', { id:uid(), case_id:caseId, item_id:itemId, file_name:file.name, file_type:file.type || 'file', file_url:dataUrl, storage_path:'local-preview', uploaded_by:state.user?.id || null, uploaded_by_name:currentName(), created_at:nowIso() });
       }
     }
+  }
+
+  async function deleteCaseStorageFiles(caseId){
+    const files = state.data.case_attachments.filter(a => a.case_id === caseId);
+    const paths = [...new Set(files.map(a => a.storage_path).filter(p => p && p !== 'local-preview'))];
+    if(state.online && paths.length){
+      const { error } = await state.client.storage.from('case-attachments').remove(paths);
+      if(error) throw new Error('刪除 Storage 照片失敗：' + error.message);
+    }
+    for(const file of files){
+      await dbDelete('case_attachments', file.id);
+    }
+    return { total:files.length, storage:paths.length };
+  }
+
+  function beginButtonBusy(button, text='處理中...'){
+    if(!button || button.dataset.busy === '1') return false;
+    button.dataset.busy = '1';
+    button.dataset.originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = text;
+    return true;
+  }
+
+  function endButtonBusy(button){
+    if(!button) return;
+    button.disabled = false;
+    button.textContent = button.dataset.originalText || button.textContent;
+    delete button.dataset.busy;
+    delete button.dataset.originalText;
   }
   function fileToDataUrl(file){
     return new Promise((resolve,reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); });
@@ -2056,6 +2090,9 @@
 
   async function saveCaseBasic(c){
     if(!canEditCase(c)) return toast('目前角色不能編輯此案件', 'bad');
+    const busyButton = $('saveCaseBtn');
+    if(!beginButtonBusy(busyButton, '儲存中...')) return;
+    toast('正在儲存案件...', 'warn');
     try{
       const status = $('mStatus').value;
       const patch = {
@@ -2081,6 +2118,7 @@
       openCase(c.id);
       toast('案件已更新');
     }catch(err){ toast(err.message || '儲存失敗','bad'); }
+    finally{ endButtonBusy(busyButton); }
   }
   async function closeCase(c){
     if(!canEditCore()) return;
@@ -2148,17 +2186,31 @@
   }
   async function deleteCase(c){
     if(!canDeleteCase(c)) return toast('只有案件建立者或管理者可以刪除案件', 'bad');
-    if(!confirm('確定刪除此案件？附件與回覆紀錄不會自動刪除 Storage 檔案。')) return;
-    clearCaseNotifications(c.id);
-    await dbDelete('cases', c.id);
-    state.data.case_items = state.data.case_items.filter(i => i.case_id !== c.id);
-    state.data.case_replies = state.data.case_replies.filter(r => r.case_id !== c.id);
-    state.data.case_attachments = state.data.case_attachments.filter(a => a.case_id !== c.id);
-    if(!state.online) saveLocal();
-    await addLog(c, '刪除案件', c.title);
-    await refreshAll(); closeModal(); toast('案件已刪除');
+    if(!confirm('確定刪除此案件？此動作會一併刪除已上傳照片，無法還原。')) return;
+    const busyButton = $('deleteCaseBtn');
+    if(!beginButtonBusy(busyButton, '刪除中...')) return;
+    toast('正在刪除案件與照片...', 'warn');
+    try{
+      clearCaseNotifications(c.id);
+      const deletedFiles = await deleteCaseStorageFiles(c.id);
+      await dbDelete('cases', c.id);
+      state.data.case_items = state.data.case_items.filter(i => i.case_id !== c.id);
+      state.data.case_replies = state.data.case_replies.filter(r => r.case_id !== c.id);
+      state.data.case_attachments = state.data.case_attachments.filter(a => a.case_id !== c.id);
+      if(!state.online) saveLocal();
+      await addLog(c, '刪除案件', c.title);
+      await refreshAll(); closeModal(); toast(`案件已刪除，已清除 ${deletedFiles.storage || deletedFiles.total} 個附件檔案`);
+    }catch(err){
+      console.error(err);
+      toast(err.message || '刪除案件失敗，請確認 Storage 權限', 'bad');
+    }finally{
+      endButtonBusy(busyButton);
+    }
   }
   async function saveModalItems(c){
+    const busyButton = $('modalSaveItems');
+    if(!beginButtonBusy(busyButton, '儲存中...')) return;
+    toast('正在儲存品項與照片...', 'warn');
     try{
       const rows = qsa('.mini-item-editor').map(div => {
         const get = f => div.querySelector(`[data-field="${f}"]`)?.value?.trim() || '';
@@ -2178,9 +2230,14 @@
     }catch(err){
       console.error(err);
       toast(err.message || '新增液晶資料失敗，請確認欄位或照片是否可上傳', 'bad');
+    }finally{
+      endButtonBusy(busyButton);
     }
   }
   async function saveLcdRestock(c){
+    const busyButton = $('saveLcdRestockBtn');
+    if(!beginButtonBusy(busyButton, '儲存中...')) return;
+    toast('正在儲存補料對應...', 'warn');
     try{
       if(!canEditCase(c)) return toast('目前角色不能登記補料', 'bad');
       const selectedIds = qsa('.lcd-restock-check').filter(x => x.checked).map(x => x.value);
@@ -2212,15 +2269,26 @@
     }catch(err){
       console.error(err);
       toast(err.message || '補料登記失敗，請確認是否已勾選資料與資料庫權限', 'bad');
+    }finally{
+      endButtonBusy(busyButton);
     }
   }
   async function uploadMore(c){
-    try{ await uploadFiles(c.id, $('mFiles').files); await addLog(c, '新增附件', `上傳 ${$('mFiles').files.length} 個附件`); await refreshAll(); state.selectedCase = state.data.cases.find(x => x.id === c.id); renderCaseModal('attachmentsTab'); toast('附件已上傳'); }
+    const files = $('mFiles')?.files || [];
+    if(!files.length) return toast('請先選擇要上傳的附件', 'bad');
+    const busyButton = $('uploadMoreBtn');
+    if(!beginButtonBusy(busyButton, '上傳中...')) return;
+    toast(`正在上傳 ${files.length} 個附件...`, 'warn');
+    try{ await uploadFiles(c.id, files); await addLog(c, '新增附件', `上傳 ${files.length} 個附件`); await refreshAll(); state.selectedCase = state.data.cases.find(x => x.id === c.id); renderCaseModal('attachmentsTab'); toast(`附件已上傳，共 ${files.length} 個`); }
     catch(err){ toast(err.message || '附件上傳失敗','bad'); }
+    finally{ endButtonBusy(busyButton); }
   }
   async function addReply(c){
     if(!canEditCase(c)) return toast('目前角色不能回覆此案件', 'bad');
     const msg = $('replyMessage').value.trim(); if(!msg) return toast('請輸入回覆內容','bad');
+    const busyButton = $('addReplyBtn');
+    if(!beginButtonBusy(busyButton, '送出中...')) return;
+    toast('正在送出回覆...', 'warn');
     try{
       const role = currentReplyRole();
       const actorId = currentUserId();
@@ -2247,6 +2315,8 @@
     }catch(err){
       console.error(err);
       toast(err.message || '新增回覆失敗，請確認權限或 Supabase 欄位是否已更新', 'bad');
+    }finally{
+      endButtonBusy(busyButton);
     }
   }
 
