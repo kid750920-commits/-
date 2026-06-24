@@ -684,11 +684,39 @@
       })
       .filter((p, idx, arr) => p.value && arr.findIndex(x => x.value === p.value) === idx);
   }
+  function profileSelectOptions(selected='', placeholder='未指定'){
+    const rows = profileOptionRows().map(p => `<option value="${safe(p.value)}" ${p.value===selected?'selected':''}>${safe(p.label)}</option>`);
+    if(selected && !profileOptionRows().some(p => p.value === selected)) rows.unshift(`<option value="${safe(selected)}" selected>${safe(selected)}（未在帳號清單）</option>`);
+    return [`<option value="" ${selected?'':'selected'}>${placeholder}</option>`, ...rows].join('');
+  }
+  function profileDisplayName(p){
+    return p?.display_name || p?.username || accountFromAuthEmail(p?.email) || '';
+  }
+  function partOwnerProfile(){
+    return (state.data.profiles || []).find(p => p && p.is_active !== false && p.is_part_owner === true && !['vendor','viewer'].includes(p.role)) || null;
+  }
+  function partOwnerName(){
+    return profileDisplayName(partOwnerProfile());
+  }
+  function applyPartOwnerLock(){
+    const owner = partOwnerName();
+    const isPart = $('caseType')?.value === PART_CASE_TYPE;
+    const input = $('ownerName');
+    if(!input) return;
+    if(isPart && owner){
+      input.value = owner;
+      input.disabled = true;
+      input.title = '維修料品負責人由帳號權限設定指定';
+    }else{
+      input.disabled = false;
+      input.title = '';
+    }
+  }
 
   function renderRefSelects(){
     const vendorOptions = ['<option value="">未指定</option>'].concat(state.data.vendors.filter(v => v.is_active !== false).map(v => `<option value="${v.id}">${safe(v.vendor_name)}</option>`)).join('');
     const locOptions = ['<option value="">未指定</option>'].concat(state.data.locations.filter(l => l.is_active !== false).map(l => `<option value="${l.id}">${safe(l.location_name)}</option>`)).join('');
-    const profileOptions = ['<option value="">未指定</option>'].concat(profileOptionRows().map(p => `<option value="${safe(p.value)}">${safe(p.label)}</option>`)).join('');
+    const profileOptions = profileSelectOptions('', '未指定');
     ['vendorId'].forEach(id => { if($(id)) $(id).innerHTML = vendorOptions; });
     ['locationId','returnLocationId'].forEach(id => { if($(id)) $(id).innerHTML = locOptions; });
     if($('newLocationManager')) $('newLocationManager').innerHTML = profileOptions;
@@ -696,6 +724,7 @@
     if($('filterLocation')) $('filterLocation').innerHTML = '<option value="">全部</option>' + state.data.locations.map(l => `<option value="${l.id}">${safe(l.location_name)}</option>`).join('');
     ['vendorPortalVendor','containerVendor'].forEach(id => { if($(id)) $(id).innerHTML = '<option value="">全部 / 依登入廠商</option>' + state.data.vendors.map(v => `<option value="${v.id}">${safe(v.vendor_name)}</option>`).join(''); });
     if($('locationReviewLocation')) $('locationReviewLocation').innerHTML = '<option value="">全部地點</option>' + state.data.locations.map(l => `<option value="${l.id}">${safe(l.location_name)}</option>`).join('');
+    applyPartOwnerLock();
   }
   function locationSelectOptions(selected='', placeholder='未指定'){
     const rows = state.data.locations
@@ -723,6 +752,7 @@
       $('caseAttachmentField').classList.toggle('hidden', isLcd);
       if(isLcd && $('attachments')) $('attachments').value = '';
     }
+    applyPartOwnerLock();
     renderItemsDraftSummary();
   }
 
@@ -831,7 +861,7 @@
         location_id: $('locationId').value || null,
         vendor_id: $('vendorId').value || null,
         applicant_name: $('applicantName').value.trim() || currentName(),
-        owner_name: $('ownerName').value.trim() || currentName(),
+        owner_name: partReviewRequired && partOwnerName() ? partOwnerName() : ($('ownerName').value.trim() || currentName()),
         tracking_no: $('trackingNo').value.trim(),
         return_tracking_no: $('returnTrackingNo').value.trim(),
         return_location_id: $('returnLocationId').value || null,
@@ -996,7 +1026,7 @@
 
   function isSchemaMissingError(err){
     const msg = String(err?.message || err || '').toLowerCase();
-    return msg.includes('schema cache') || msg.includes('column') || msg.includes('overdue_status') || msg.includes('vendor_reply_status') || msg.includes('last_vendor_reminder_date');
+    return msg.includes('schema cache') || msg.includes('column') || msg.includes('overdue_status') || msg.includes('vendor_reply_status') || msg.includes('last_vendor_reminder_date') || msg.includes('is_part_owner');
   }
 
   async function updateAutomationFields(c, patch){
@@ -1606,7 +1636,12 @@
   function renderSettings(){
     if(!$('vendorsList')) return;
     $('vendorsList').innerHTML = state.data.vendors.map(v => `<div class="item-box"><div class="row" style="justify-content:space-between"><div><b>${safe(v.vendor_name)}</b><div class="small muted">聯絡人：${safe(v.contact_person||'-')}｜Email：${safe(v.email||'-')}｜提醒：${v.default_sla_days||'-'} 天</div></div>${v.is_active===false?'<span class="badge bad-b">停用</span>':'<span class="badge good-b">啟用</span>'}</div><div class="row" style="margin-top:10px"><button class="btn ghost small-btn" onclick="window.VCS.toggleVendor('${v.id}')">${v.is_active===false?'啟用':'停用'}</button>${isAdmin()?`<button class="btn ghost small-btn" onclick="window.VCS.deleteVendor('${v.id}')">刪除</button>`:''}</div></div>`).join('') || '<div class="empty">尚無廠商</div>';
-    $('locationsList').innerHTML = state.data.locations.map(l => `<div class="item-box"><div class="row" style="justify-content:space-between"><div><b>${safe(l.location_name)}</b><div class="small muted">負責人：${safe(l.manager_name||'-')}</div></div>${l.is_active===false?'<span class="badge bad-b">停用</span>':'<span class="badge good-b">啟用</span>'}</div><div class="row" style="margin-top:10px"><button class="btn ghost small-btn" onclick="window.VCS.toggleLocation('${l.id}')">${l.is_active===false?'啟用':'停用'}</button>${isAdmin()?`<button class="btn ghost small-btn" onclick="window.VCS.deleteLocation('${l.id}')">刪除</button>`:''}</div></div>`).join('') || '<div class="empty">尚無地點</div>';
+    $('locationsList').innerHTML = state.data.locations.map(l => `<div class="item-box" data-location-id="${safe(l.id)}"><div class="row" style="justify-content:space-between"><div><b>${safe(l.location_name)}</b><div class="small muted">負責人：${safe(l.manager_name||'-')}</div></div>${l.is_active===false?'<span class="badge bad-b">停用</span>':'<span class="badge good-b">啟用</span>'}</div>
+      <div class="grid-2" style="margin-top:10px">
+        <div class="field"><label>地點名稱</label><input data-location-field="location_name" value="${safe(l.location_name || '')}"></div>
+        <div class="field"><label>地點負責人</label><select data-location-field="manager_name">${profileSelectOptions(l.manager_name || '', '未指定')}</select></div>
+      </div>
+      <div class="row" style="margin-top:10px"><button class="btn small-btn" onclick="window.VCS.saveLocation('${safe(l.id)}')">儲存地點</button><button class="btn ghost small-btn" onclick="window.VCS.toggleLocation('${safe(l.id)}')">${l.is_active===false?'啟用':'停用'}</button>${isAdmin()?`<button class="btn ghost small-btn" onclick="window.VCS.deleteLocation('${safe(l.id)}')">刪除</button>`:''}</div></div>`).join('') || '<div class="empty">尚無地點</div>';
     $('profileInfo').innerHTML = `
       <div class="kpi-row">
         <div class="item-box"><b>登入名稱</b><div class="muted">${safe(currentName())}</div></div>
@@ -1652,7 +1687,7 @@
     ];
     const vendorOptions = ['<option value="">未指定</option>'].concat(state.data.vendors.map(v => `<option value="${safe(v.id)}">${safe(v.vendor_name)}</option>`)).join('');
     const locationOptions = ['<option value="">未指定</option>'].concat(state.data.locations.map(l => `<option value="${safe(l.id)}">${safe(l.location_name)}</option>`)).join('');
-    $('accountAdminList').innerHTML = `<div class="table-wrap account-admin-wrap"><table><thead><tr><th>帳號</th><th>名稱</th><th>角色</th><th>廠商</th><th>地點</th><th>狀態</th><th>操作</th></tr></thead><tbody>${profiles.map(p => {
+    $('accountAdminList').innerHTML = `<div class="table-wrap account-admin-wrap"><table><thead><tr><th>帳號</th><th>名稱</th><th>角色</th><th>廠商</th><th>地點</th><th>維修料品</th><th>狀態</th><th>操作</th></tr></thead><tbody>${profiles.map(p => {
       const isSelf = p.id === currentUserId();
       const roleSelect = `<select data-profile-field="role" ${isSelf?'disabled':''}>${roleOptions.map(([value,label]) => `<option value="${value}" ${p.role===value?'selected':''}>${label}</option>`).join('')}</select>`;
       const vendorSelect = `<select data-profile-field="vendor_id">${vendorOptions.replace(`value="${safe(p.vendor_id || '')}"`, `value="${safe(p.vendor_id || '')}" selected`)}</select>`;
@@ -1663,10 +1698,11 @@
         <td>${roleSelect}${isSelf?'<div class="small muted">不能調整自己角色</div>':''}</td>
         <td>${vendorSelect}</td>
         <td>${locationSelect}</td>
+        <td><label class="small"><input type="checkbox" data-profile-field="is_part_owner" ${p.is_part_owner?'checked':''}> 負責人</label></td>
         <td>${p.is_active===false?'<span class="badge bad-b">停用</span>':'<span class="badge good-b">啟用</span>'}</td>
         <td><button class="btn small-btn" onclick="window.VCS.saveProfileRole('${safe(p.id)}')">儲存</button><button class="btn ghost small-btn" onclick="window.VCS.toggleProfileActive('${safe(p.id)}')" ${isSelf?'disabled title="不能停用自己"':''}>${p.is_active===false?'啟用':'停用'}</button></td>
       </tr>`;
-    }).join('')}</tbody></table></div><div class="hint" style="margin-top:12px">提醒：廠商帳號請將角色設為「廠商」，並選擇對應廠商；停用後該帳號登入會被視為未啟用帳號。</div>`;
+    }).join('')}</tbody></table></div><div class="hint" style="margin-top:12px">提醒：廠商帳號請將角色設為「廠商」，並選擇對應廠商；維修料品負責人同時間只建議設定一人，設定後維修料品申請會自動帶入且鎖定。</div>`;
   }
 
   async function saveProfileRole(id){
@@ -1680,11 +1716,30 @@
       role:field('role')?.value || profile.role || 'operator',
       vendor_id:field('vendor_id')?.value || null,
       location_id:field('location_id')?.value || null,
+      is_part_owner:!!field('is_part_owner')?.checked,
       updated_at:nowIso()
     };
     if(id === currentUserId()) patch.role = profile.role;
-    await dbUpdate('profiles', id, patch);
-    await addLog(null, '調整帳號權限', `${profile.username || profile.email || id} → ${roleName(patch.role)}${patch.vendor_id ? ' / 廠商：' + vendorName(patch.vendor_id) : ''}`);
+    if(patch.is_part_owner && ['vendor','viewer'].includes(patch.role)) return toast('維修料品負責人需為管理者或作業員', 'bad');
+    try{
+      if(patch.is_part_owner){
+        const others = state.data.profiles.filter(p => p.id !== id && p.is_part_owner);
+        for(const other of others){
+          await dbUpdate('profiles', other.id, { is_part_owner:false, updated_at:nowIso() });
+        }
+      }
+      await dbUpdate('profiles', id, patch);
+    }catch(err){
+      if(isSchemaMissingError(err) && String(err?.message || err).includes('is_part_owner')){
+        const fallbackPatch = { ...patch };
+        delete fallbackPatch.is_part_owner;
+        await dbUpdate('profiles', id, fallbackPatch);
+        await refreshAll();
+        return toast('帳號權限已更新；維修料品負責人欄位尚未建立，請先套用 database/patches/2026-06-24-add-profile-part-owner-flag.sql', 'warn');
+      }
+      throw err;
+    }
+    await addLog(null, '調整帳號權限', `${profile.username || profile.email || id} → ${roleName(patch.role)}${patch.vendor_id ? ' / 廠商：' + vendorName(patch.vendor_id) : ''}${patch.is_part_owner ? ' / 維修料品負責人' : ''}`);
     await refreshAll();
     toast('帳號權限已更新');
   }
@@ -1748,6 +1803,19 @@
     await addLog(null, '更新地點', `${l.location_name} ${l.is_active===false?'啟用':'停用'}`);
     await refreshAll();
   }
+  async function saveLocation(id){
+    if(!isAdmin()) return toast('只有管理者可以編輯地點', 'bad');
+    const row = qsa('[data-location-id]').find(el => el.dataset.locationId === id);
+    const loc = byId(state.data.locations, id);
+    if(!row || !loc) return toast('找不到地點資料', 'bad');
+    const name = row.querySelector('[data-location-field="location_name"]')?.value.trim() || '';
+    const manager = row.querySelector('[data-location-field="manager_name"]')?.value.trim() || '';
+    if(!name) return toast('請輸入地點名稱', 'bad');
+    await dbUpdate('locations', id, { location_name:name, manager_name:manager });
+    await addLog(null, '編輯地點', `${loc.location_name} → ${name} / 負責人：${manager || '未指定'}`);
+    await refreshAll();
+    toast('地點已更新');
+  }
   async function deleteVendor(id){
     if(!isAdmin()) return toast('只有管理者可以刪除', 'bad');
     if(!confirm('確定刪除此廠商？已存在案件建議改停用即可。')) return;
@@ -1791,6 +1859,9 @@
     const editAny = canEditCase(c);
     const statusOptions = STATUS.filter(s => editCore || VENDOR_STATUS.includes(s) || s === c.status).map(s => `<option ${s===c.status?'selected':''}>${safe(s)}</option>`).join('');
     const returnLocationOptions = locationSelectOptions(returnLocationId(c), '未指定 / 同送修地點');
+    const lockedPartOwner = isPartCase(c) ? partOwnerName() : '';
+    const ownerValue = lockedPartOwner || c.owner_name || '';
+    const ownerLocked = !!lockedPartOwner;
     return `<div class="modal-tab-content active">
       ${automationStatusHtml(c)}
       <div class="grid-3">
@@ -1809,7 +1880,7 @@
         <div class="field"><label>回寄地點</label><select id="mReturnLocationId" ${editAny?'':'disabled'}>${returnLocationOptions}</select></div>
       </div>
       <div class="grid-3">
-        <div class="field"><label>內部負責人</label><input id="mOwnerName" value="${safe(c.owner_name||'')}" ${editCore?'':'disabled'}></div>
+        <div class="field"><label>內部負責人</label><input id="mOwnerName" value="${safe(ownerValue)}" ${editCore && !ownerLocked?'':'disabled'}>${ownerLocked?'<div class="hint">維修料品負責人由帳號權限設定指定。</div>':''}</div>
       </div>
       ${reviewPanelHtml(c)}
       <div class="field"><label>問題描述 / 需求說明</label><textarea id="mDescription" ${editCore?'':'disabled'}>${safe(c.description||'')}</textarea></div>
@@ -1976,7 +2047,7 @@
         tracking_no:$('mTrackingNo')?.value?.trim() || c.tracking_no,
         return_tracking_no:$('mReturnTrackingNo').value.trim(),
         return_location_id:$('mReturnLocationId')?.value || null,
-        owner_name:$('mOwnerName')?.value?.trim() || c.owner_name,
+        owner_name:isPartCase(c) && partOwnerName() ? partOwnerName() : ($('mOwnerName')?.value?.trim() || c.owner_name),
         description:$('mDescription')?.value?.trim() || c.description,
         closed_at: CLOSED_STATUS.includes(status) ? (c.closed_at || nowIso()) : null,
         updated_by:state.user?.id || null,
@@ -2309,6 +2380,6 @@
     setTimeout(() => div.remove(), 3600);
   }
 
-  window.VCS = { openCase, toggleVendor, toggleLocation, deleteVendor, deleteLocation, saveProfileRole, toggleProfileActive, copyFollowup, markVendorFollowed, markNotificationRead:(id)=>{ markNoticeRead(id); renderNotifications(); updateNotificationUi(); }, markNotificationUnread:(id)=>{ markNoticeUnread(id); renderNotifications(); updateNotificationUi(); } };
+  window.VCS = { openCase, toggleVendor, toggleLocation, saveLocation, deleteVendor, deleteLocation, saveProfileRole, toggleProfileActive, copyFollowup, markVendorFollowed, markNotificationRead:(id)=>{ markNoticeRead(id); renderNotifications(); updateNotificationUi(); }, markNotificationUnread:(id)=>{ markNoticeUnread(id); renderNotifications(); updateNotificationUi(); } };
   boot();
 })();
