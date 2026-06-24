@@ -3,9 +3,5 @@
   "buildCommand": null,
   "outputDirectory": ".",
   "installCommand": null,
-  "cleanUrls": true,
-  "env": {
-    "SUPABASE_URL": "@supabase_url",
-    "SUPABASE_ANON_KEY": "@supabase_anon_key"
-  }
+  "cleanUrls": true
 }
