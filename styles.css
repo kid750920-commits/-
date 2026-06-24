@@ -441,6 +441,28 @@ tr:hover td{background:#fbfcfe}
 .toast.good-t{border-color:#86efac}
 .toast.warn-t{border-color:#f59e0b}
 .toast.bad-t{border-color:#fca5a5}
+.error-banner{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  margin:0 0 14px;
+  padding:12px 14px;
+  border:1px solid #fca5a5;
+  border-radius:8px;
+  background:#fef2f2;
+  color:#991b1b;
+  line-height:1.6;
+}
+.error-banner button{
+  flex:0 0 auto;
+  border:0;
+  background:transparent;
+  color:inherit;
+  cursor:pointer;
+  font-size:20px;
+  line-height:1;
+}
 .account-admin-wrap input,
 .account-admin-wrap select{
   min-width:130px;

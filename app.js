@@ -8,6 +8,7 @@
   const STORAGE_KEY = 'vendor_case_system_phase2_localdb_v1';
   const CONFIG_KEY = 'vendor_case_system_phase1_config';
   const NOTIFY_KEY = 'vendor_case_system_phase1_notifications_read_v1';
+  const DRAFT_KEY = 'vendor_case_system_new_case_draft_v1';
   const INTERNAL_AUTH_DOMAIN = 'vcs.local';
   const CLOUD_TABLES = ['vendors','locations','profiles','cases','case_items','case_replies','case_attachments','case_logs'];
   const DATE_FMT = new Intl.DateTimeFormat('zh-TW', { year:'numeric', month:'2-digit', day:'2-digit' });
@@ -40,6 +41,7 @@
     notificationFilter: 'all',
     followupFilter: 'all',
     automationFieldsAvailable: true,
+    draftRestored: false,
     realtimeChannel: null,
     realtimeRefreshTimer: null
   };
@@ -317,6 +319,7 @@
       $('cloudConfigActions')?.classList.add('hidden');
       $('cloudConfigDivider')?.classList.add('hidden');
       $('setupHint')?.classList.add('hidden');
+      $('demoPanel')?.classList.add('hidden');
     }
   }
   function initSupabase(url, key){
@@ -450,7 +453,11 @@
     $('caseType').addEventListener('change', onTypeChange);
     $('addItemBtn').addEventListener('click', () => addItemEditor());
     $('caseForm').addEventListener('submit', createCase);
-    $('resetCaseBtn').addEventListener('click', () => setTimeout(resetItemsEditor,0));
+    bindNewCaseDraft();
+    $('resetCaseBtn').addEventListener('click', () => {
+      clearNewCaseDraft();
+      setTimeout(resetItemsEditor,0);
+    });
     ['filterKeyword','filterType','filterStatus','filterVendor','filterLocation','filterOverdue'].forEach(id => $(id).addEventListener('input', renderCaseList));
     $('exportCsvBtn').addEventListener('click', exportCsv);
     $('addVendorBtn').addEventListener('click', addVendor);
@@ -490,6 +497,49 @@
     });
   }
 
+  function newCaseDraftFields(){
+    return ['caseType','caseTitle','priority','locationId','vendorId','ownerName','applicantName','shipDate','dueDate','trackingNo','returnTrackingNo','returnLocationId','reminderDays','description'];
+  }
+
+  function bindNewCaseDraft(){
+    newCaseDraftFields().forEach(id => {
+      const el = $(id);
+      if(!el) return;
+      el.addEventListener('input', saveNewCaseDraft);
+      el.addEventListener('change', saveNewCaseDraft);
+    });
+  }
+
+  function saveNewCaseDraft(){
+    const draft = {};
+    newCaseDraftFields().forEach(id => {
+      const el = $(id);
+      if(el) draft[id] = el.value;
+    });
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  }
+
+  function restoreNewCaseDraft(){
+    if(state.draftRestored) return;
+    try{
+      const draft = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || 'null');
+      if(!draft) return;
+      newCaseDraftFields().forEach(id => {
+        const el = $(id);
+        if(el && draft[id] != null) el.value = draft[id];
+      });
+      state.draftRestored = true;
+      onTypeChange();
+      renderItemsDraftSummary();
+      toast('已還原尚未送出的新增案件草稿', 'warn');
+    }catch(_){}
+  }
+
+  function clearNewCaseDraft(){
+    sessionStorage.removeItem(DRAFT_KEY);
+    state.draftRestored = false;
+  }
+
   async function logout(){
     stopRealtimeSync();
     if(state.client && state.online){ await state.client.auth.signOut(); }
@@ -520,6 +570,7 @@
     $('pageTitle').textContent = titles[section]?.[0] || '';
     $('pageSubtitle').textContent = titles[section]?.[1] || '';
     renderAll();
+    if(section === 'newCase') setTimeout(restoreNewCaseDraft, 0);
   }
 
   async function refreshAll(options={}){
@@ -527,8 +578,10 @@
     try{
       if(state.online){ await loadCloudData(); }
       else { state.data = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || seedData(); saveLocal(state.data); }
-      const autoResult = await runDailyCaseAutomation();
-      if(autoResult?.changed && state.online) await loadCloudData();
+      if(!silent){
+        const autoResult = await runDailyCaseAutomation();
+        if(autoResult?.changed && state.online) await loadCloudData();
+      }
       hydrateSelectOptions();
       updateUserUi();
       if(!silent) resetItemsEditor(false);
@@ -540,9 +593,16 @@
 
   async function loadCloudData(){
     const data = emptyData();
-    for(const table of CLOUD_TABLES){
+    const mainTables = ['vendors','locations','profiles','cases','case_items','case_replies'];
+    const limitedTables = { case_attachments:500, case_logs:300 };
+    for(const table of mainTables){
       const orderCol = table === 'cases' ? 'updated_at' : 'created_at';
       const { data: rows, error } = await state.client.from(table).select('*').order(orderCol, { ascending:false });
+      if(error) throw error;
+      data[table] = rows || [];
+    }
+    for(const [table, limit] of Object.entries(limitedTables)){
+      const { data: rows, error } = await state.client.from(table).select('*').order('created_at', { ascending:false }).limit(limit);
       if(error) throw error;
       data[table] = rows || [];
     }
@@ -886,6 +946,15 @@
       };
       if(!row.title) return toast('請輸入案件標題', 'bad');
       const existingLcdCase = normalizeCaseType(case_type) === LCD_CASE_TYPE ? findExistingLcdCaseByTitle(row.title) : null;
+      if(existingLcdCase){
+        const existingCount = state.data.case_items.filter(i => i.case_id === existingLcdCase.id).length;
+        const confirmed = window.confirm(
+          `已找到同標題液晶案件：${existingLcdCase.case_no}\n\n` +
+          `標題：${row.title}\n目前已有 ${existingCount} 筆液晶資料。\n\n` +
+          `按「確定」會併入同一筆案件；按「取消」則停止建立，請改標題後再新增。`
+        );
+        if(!confirmed) return;
+      }
       const created = existingLcdCase || await dbInsert('cases', row);
       if(existingLcdCase){
         await dbUpdate('cases', existingLcdCase.id, {
@@ -926,6 +995,7 @@
       }
       if(normalizeCaseType(case_type) !== LCD_CASE_TYPE) await uploadFiles(created.id, $('attachments').files);
       await addLog(created, existingLcdCase ? '液晶同標題追加/更新' : '新增案件', existingLcdCase ? `同標題「${row.title}」追加 ${insertedItems} 筆、更新 ${updatedItems} 筆液晶資料` : `建立 ${created.case_type}：${created.title}`);
+      clearNewCaseDraft();
       $('caseForm').reset();
       $('shipDate').value = '';
       $('dueDate').value = '';
@@ -933,7 +1003,11 @@
       await refreshAll();
       showSection('caseList');
       toast(existingLcdCase ? '已併入同標題液晶案件' : partReviewRequired ? '申請單已建立，會通知負責人審核' : '案件已建立');
-    }catch(err){ console.error(err); toast(err.message || '建立案件失敗', 'bad'); }
+    }catch(err){
+      console.error(err);
+      errorBanner(err.message || '建立案件失敗', $('caseForm'));
+      toast(err.message || '建立案件失敗', 'bad');
+    }
     finally{ endButtonBusy(busyButton); }
   }
 
@@ -952,6 +1026,11 @@
   }
 
   async function nextCaseNo(prefix){
+    if(state.online && state.client){
+      const { data, error } = await state.client.rpc('generate_case_no', { p_prefix: prefix });
+      if(error) throw new Error('案件編號產生失敗：' + error.message);
+      return data;
+    }
     const today = compactDate(new Date());
     const same = state.data.cases.filter(c => String(c.case_no || '').startsWith(prefix + '-' + today));
     const num = String(same.length + 1).padStart(3,'0');
@@ -1157,17 +1236,18 @@
   }
 
   function renderAll(){
-    renderDashboard();
-    renderCaseList();
-    renderReminders();
-    renderNotifications();
-    renderVendorPortal();
-    renderLocationReview();
-    renderContainerBatches();
-    renderVendorFollowup();
-    renderReports();
-    renderSettings();
-    renderLogs();
+    const section = state.section;
+    if(section === 'dashboard') renderDashboard();
+    if(section === 'caseList') renderCaseList();
+    if(section === 'reminders') renderReminders();
+    if(section === 'notifications') renderNotifications();
+    if(section === 'vendorPortal') renderVendorPortal();
+    if(section === 'locationReview') renderLocationReview();
+    if(section === 'containerBatches') renderContainerBatches();
+    if(section === 'vendorFollowup') renderVendorFollowup();
+    if(section === 'reports') renderReports();
+    if(section === 'settings') renderSettings();
+    if(section === 'logs') renderLogs();
   }
 
   function updateUserUi(){
@@ -1906,7 +1986,36 @@
     if(activeTab === 'attachmentsTab') content.innerHTML = modalAttachments(c);
     if(activeTab === 'replies') content.innerHTML = modalReplies(c);
     if(activeTab === 'caseLogs') content.innerHTML = modalLogs(c);
+    renderModalHeaderActions(c);
     bindModalEvents(activeTab, c);
+  }
+
+  function renderModalHeaderActions(c){
+    const headerActions = $('modalHeaderActions');
+    if(!headerActions) return;
+    headerActions.querySelectorAll('.header-action-btn').forEach(btn => btn.remove());
+    const actions = [];
+    if(canEditCase(c)) actions.push(['儲存', 'btn small-btn header-action-btn', 'headerSaveCaseBtn']);
+    if(canEditCore()) actions.push(['結案', 'btn good-bg small-btn header-action-btn', 'headerCloseCaseBtn']);
+    if(canDeleteCase(c)) actions.push(['刪除', 'btn danger-bg small-btn header-action-btn', 'headerDeleteCaseBtn']);
+    actions.reverse().forEach(([text, cls, id]) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = text;
+      btn.className = cls;
+      btn.id = id;
+      headerActions.insertBefore(btn, headerActions.firstChild);
+    });
+    $('headerSaveCaseBtn')?.addEventListener('click', () => {
+      if(!$('mStatus')){
+        renderCaseModal('basic');
+        toast('已切換到基本資料，請確認後再儲存', 'warn');
+        return;
+      }
+      saveCaseBasic(c);
+    });
+    $('headerCloseCaseBtn')?.addEventListener('click', () => closeCase(c));
+    $('headerDeleteCaseBtn')?.addEventListener('click', () => deleteCase(c));
   }
 
   function modalBasic(c){
@@ -1939,7 +2048,7 @@
       </div>
       ${reviewPanelHtml(c)}
       <div class="field"><label>問題描述 / 需求說明</label><textarea id="mDescription" ${editCore?'':'disabled'}>${safe(c.description||'')}</textarea></div>
-      <div class="row">
+      <div class="row" style="display:none">
         ${editAny?'<button class="btn" id="saveCaseBtn">儲存修改</button>':''}
         ${editCore?'<button class="btn good-bg" id="closeCaseBtn">結案</button>':''}
         ${canDeleteCase(c)?'<button class="btn danger-bg" id="deleteCaseBtn">刪除案件</button>':''}
@@ -2090,7 +2199,7 @@
 
   async function saveCaseBasic(c){
     if(!canEditCase(c)) return toast('目前角色不能編輯此案件', 'bad');
-    const busyButton = $('saveCaseBtn');
+    const busyButton = $('headerSaveCaseBtn') || $('saveCaseBtn');
     if(!beginButtonBusy(busyButton, '儲存中...')) return;
     toast('正在儲存案件...', 'warn');
     try{
@@ -2117,7 +2226,11 @@
       state.selectedCase = state.data.cases.find(x => x.id === c.id);
       openCase(c.id);
       toast('案件已更新');
-    }catch(err){ toast(err.message || '儲存失敗','bad'); }
+    }catch(err){
+      console.error(err);
+      errorBanner(err.message || '儲存案件失敗，請稍後再試', $('headerSaveCaseBtn') || $('saveCaseBtn'));
+      toast(err.message || '儲存失敗','bad');
+    }
     finally{ endButtonBusy(busyButton); }
   }
   async function closeCase(c){
@@ -2187,7 +2300,7 @@
   async function deleteCase(c){
     if(!canDeleteCase(c)) return toast('只有案件建立者或管理者可以刪除案件', 'bad');
     if(!confirm('確定刪除此案件？此動作會一併刪除已上傳照片，無法還原。')) return;
-    const busyButton = $('deleteCaseBtn');
+    const busyButton = $('headerDeleteCaseBtn') || $('deleteCaseBtn');
     if(!beginButtonBusy(busyButton, '刪除中...')) return;
     toast('正在刪除案件與照片...', 'warn');
     try{
@@ -2280,7 +2393,11 @@
     if(!beginButtonBusy(busyButton, '上傳中...')) return;
     toast(`正在上傳 ${files.length} 個附件...`, 'warn');
     try{ await uploadFiles(c.id, files); await addLog(c, '新增附件', `上傳 ${files.length} 個附件`); await refreshAll(); state.selectedCase = state.data.cases.find(x => x.id === c.id); renderCaseModal('attachmentsTab'); toast(`附件已上傳，共 ${files.length} 個`); }
-    catch(err){ toast(err.message || '附件上傳失敗','bad'); }
+    catch(err){
+      console.error(err);
+      errorBanner(err.message || '附件上傳失敗', $('uploadMoreBtn'));
+      toast(err.message || '附件上傳失敗','bad');
+    }
     finally{ endButtonBusy(busyButton); }
   }
   async function addReply(c){
@@ -2314,6 +2431,7 @@
       await refreshAll(); state.selectedCase = state.data.cases.find(x => x.id === c.id); renderCaseModal('replies'); updateNotificationUi(); toast('回覆已新增，相關帳號登入後才會看到自己的新回覆通知');
     }catch(err){
       console.error(err);
+      errorBanner(err.message || '新增回覆失敗，請確認權限或 Supabase 欄位是否已更新', $('addReplyBtn'));
       toast(err.message || '新增回覆失敗，請確認權限或 Supabase 欄位是否已更新', 'bad');
     }finally{
       endButtonBusy(busyButton);
@@ -2470,6 +2588,17 @@
     div.textContent = msg;
     wrap.appendChild(div);
     setTimeout(() => div.remove(), 3600);
+  }
+
+  function errorBanner(msg, contextEl=null){
+    const target = contextEl?.closest('.panel, .modal-body, .section') || $('app') || document.body;
+    target.querySelector('.error-banner')?.remove();
+    const banner = document.createElement('div');
+    banner.className = 'error-banner';
+    banner.innerHTML = `<span>${safe(msg)}</span><button type="button" aria-label="關閉錯誤訊息">×</button>`;
+    banner.querySelector('button')?.addEventListener('click', () => banner.remove());
+    target.insertBefore(banner, target.firstChild);
+    setTimeout(() => banner.remove(), 30000);
   }
 
   window.VCS = { openCase, toggleVendor, toggleLocation, saveLocation, deleteVendor, deleteLocation, saveProfileRole, toggleProfileActive, copyFollowup, markVendorFollowed, markNotificationRead:(id)=>{ markNoticeRead(id); renderNotifications(); updateNotificationUi(); }, markNotificationUnread:(id)=>{ markNoticeUnread(id); renderNotifications(); updateNotificationUi(); } };

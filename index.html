@@ -4,6 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>公司與廠商協作追蹤系統｜線上多人共用版</title>
+  <script>
+    window.__ENV__ = {
+      SUPABASE_URL: '%SUPABASE_URL%',
+      SUPABASE_ANON_KEY: '%SUPABASE_ANON_KEY%'
+    };
+  </script>
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -19,7 +25,7 @@
           <div class="hero-chip">維修料品申請<br><span class="muted small">地點申請、照片、廠商回覆</span></div>
           <div class="hero-chip">液晶面板與 BUG<br><span class="muted small">保固申請、SN、損壞照片</span></div>
         </div>
-        <div class="hint" id="setupHint" style="margin-top:24px">正式使用前，請先到 Supabase 執行 <b>supabase_schema.sql</b>，再於 <b>config.js</b> 填入 Project URL 與 anon public key，部署後即可多人用同一網址操作。</div>
+        <div class="hint" id="setupHint" style="margin-top:24px">正式使用前，請先套用 <b>database/patches</b> 內必要 SQL，再於 Vercel 設定 <b>supabase_url</b> 與 <b>supabase_anon_key</b> 環境變數，部署後即可多人用同一網址操作。</div>
       </section>
       <section class="login-form">
         <h2>登入系統</h2>
@@ -55,7 +61,7 @@
           <button class="btn" id="loginBtn">登入</button>
           <button class="btn ghost" id="signupBtn">註冊作業員帳號</button>
         </div>
-        <div class="panel" style="margin:4px 0 0;padding:12px">
+        <div class="panel" id="demoPanel" style="margin:4px 0 0;padding:12px">
           <div class="row">
             <button class="btn good-bg" id="demoAdminBtn">本機展示｜管理者</button>
             <button class="btn ghost" id="demoOperatorBtn">作業員</button>
@@ -424,7 +430,7 @@
     <div class="modal">
       <div class="modal-header">
         <div><h2 id="modalTitle">案件明細</h2><div id="modalSub" class="small muted"></div></div>
-        <div class="row"><button class="btn ghost small-btn" id="printCaseBtn">列印</button><button class="btn ghost small-btn" id="closeModalBtn">關閉</button></div>
+        <div class="row" id="modalHeaderActions"><button class="btn ghost small-btn" id="printCaseBtn">列印</button><button class="btn ghost small-btn" id="closeModalBtn">關閉</button></div>
       </div>
       <div class="modal-body">
         <div class="modal-tabs">
@@ -439,6 +445,7 @@
     </div>
   </div>
   <div class="toast-wrap" id="toastWrap"></div>
+  <script src="/api/env"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
