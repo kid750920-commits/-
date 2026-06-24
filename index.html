@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>公司與廠商協作追蹤系統｜線上多人共用版</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div id="loginPage" class="login-page">
+    <div class="login-card">
+      <section class="login-hero">
+        <h1>公司 ↔ 廠商協作追蹤系統</h1>
+        <p>線上多人共用版：帳號登入、Supabase 雲端同步、訪客唯讀、廠商工作台、每日逾期檢查、廠商未回覆提醒與個人通知。</p>
+        <div class="hero-grid">
+          <div class="hero-chip">順豐送修<br><span class="muted small">單號、收件、回寄追蹤</span></div>
+          <div class="hero-chip">貨櫃送修<br><span class="muted small">批次品項與維修進度</span></div>
+          <div class="hero-chip">維修料品申請<br><span class="muted small">地點申請、照片、廠商回覆</span></div>
+          <div class="hero-chip">液晶面板與 BUG<br><span class="muted small">保固申請、SN、損壞照片</span></div>
+        </div>
+        <div class="hint" id="setupHint" style="margin-top:24px">正式使用前，請先到 Supabase 執行 <b>supabase_schema.sql</b>，再於 <b>config.js</b> 填入 Project URL 與 anon public key，部署後即可多人用同一網址操作。</div>
+      </section>
+      <section class="login-form">
+        <h2>登入系統</h2>
+        <p class="muted small">部署到 Vercel 後，所有使用者用同一網址登入；註冊只需要帳號＋密碼，不需要 Email。</p>
+        <div class="field cloud-config-field">
+          <label>Supabase Project URL</label>
+          <input id="supabaseUrl" placeholder="https://xxxxx.supabase.co">
+        </div>
+        <div class="field cloud-config-field">
+          <label>Supabase anon public key</label>
+          <input id="supabaseKey" placeholder="eyJhbGciOiJIUzI1NiIs...">
+        </div>
+        <div class="row" id="cloudConfigActions">
+          <button class="btn ghost" id="saveConfigBtn">儲存雲端設定</button>
+          <button class="btn ghost" id="clearConfigBtn">清除設定</button>
+        </div>
+        <hr id="cloudConfigDivider" style="width:100%;border-color:rgba(148,163,184,.15);border-style:solid;border-bottom:0">
+        <div class="grid-2">
+          <div class="field">
+            <label>帳號</label>
+            <input id="email" type="text" autocomplete="username" placeholder="例如：admin / operator01 / ys_vendor">
+          </div>
+          <div class="field">
+            <label>密碼</label>
+            <input id="password" type="password" autocomplete="current-password" placeholder="至少 6 碼">
+          </div>
+        </div>
+        <div class="field">
+          <label>顯示名稱（註冊時使用，可空白）</label>
+          <input id="displayName" placeholder="例如：白駿森">
+        </div>
+        <div class="row">
+          <button class="btn" id="loginBtn">登入</button>
+          <button class="btn ghost" id="signupBtn">註冊作業員帳號</button>
+        </div>
+        <div class="panel" style="margin:4px 0 0;padding:12px">
+          <div class="row">
+            <button class="btn good-bg" id="demoAdminBtn">本機展示｜管理者</button>
+            <button class="btn ghost" id="demoOperatorBtn">作業員</button>
+            <button class="btn ghost" id="demoVendorBtn">廠商</button>
+            <button class="btn ghost" id="demoViewerBtn">訪客檢視</button>
+          </div>
+          <p class="muted small">展示模式資料存在目前瀏覽器 localStorage，不會多人同步。</p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="app" class="app hidden">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo">V</div>
+        <div>
+          <h2>廠商協作追蹤</h2>
+          <small id="modeLabel">展示模式</small>
+        </div>
+      </div>
+      <nav class="nav" id="nav">
+        <div class="nav-group">
+          <div class="nav-label">總覽</div>
+          <button data-section="dashboard" class="active"><span class="nav-ico">DB</span>儀表板</button>
+          <button data-section="notifications"><span class="nav-ico">NT</span>回覆通知 <span id="navNotificationCount" class="nav-count hidden">0</span></button>
+        </div>
+        <div class="nav-group">
+          <div class="nav-label">案件作業</div>
+          <button data-section="newCase"><span class="nav-ico">+</span>新增案件</button>
+          <button data-section="caseList"><span class="nav-ico">CA</span>案件總表</button>
+          <button data-section="reminders"><span class="nav-ico">SL</span>時效提醒</button>
+          <button data-section="vendorFollowup"><span class="nav-ico">FU</span>催廠商清單</button>
+        </div>
+        <div class="nav-group">
+          <div class="nav-label">分類工作台</div>
+          <button data-section="vendorPortal"><span class="nav-ico">VD</span>廠商工作台</button>
+          <button data-section="locationReview"><span class="nav-ico">LC</span>地點申請統整</button>
+          <button data-section="containerBatches"><span class="nav-ico">CT</span>貨櫃批次</button>
+        </div>
+        <div class="nav-group">
+          <div class="nav-label">管理</div>
+          <button data-section="reports"><span class="nav-ico">RP</span>統計報表</button>
+          <button data-section="importExport"><span class="nav-ico">IO</span>匯入 / 匯出</button>
+          <button data-section="settings"><span class="nav-ico">ST</span>基本資料設定</button>
+          <button data-section="logs"><span class="nav-ico">LG</span>操作紀錄</button>
+        </div>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="small muted">目前帳號</div>
+        <div id="sideUser" style="font-weight:900;margin-top:6px">-</div>
+        <div id="sideRole" class="small muted" style="margin-top:6px">-</div>
+        <button class="btn ghost" id="logoutBtn" style="width:100%;margin-top:12px">登出</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div>
+          <h1 id="pageTitle">儀表板</h1>
+          <p id="pageSubtitle">案件狀態、逾期與廠商未回覆快速總覽</p>
+        </div>
+        <div class="row">
+          <button class="btn ghost notify-btn" id="notificationBtn">通知 <span id="notificationCount" class="notify-count hidden">0</span></button>
+          <button class="btn ghost" id="refreshBtn">重新整理</button>
+          <div class="user-pill"><div class="avatar" id="avatarText">白</div><div><b id="userName">-</b><div class="small muted" id="userRole">-</div></div></div>
+        </div>
+      </div>
+
+      <section id="dashboard" class="section active">
+        <div class="cards" id="dashboardCards"></div>
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-title"><div><h2>今日/近期需追蹤</h2><p>快逾期、已逾期、廠商未回覆</p></div><button class="btn ghost small-btn" data-go="reminders">查看全部</button></div>
+            <div id="dashboardUrgent"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-title"><div><h2>案件類型統計</h2><p>依五種表單類型分類</p></div></div>
+            <div id="typeStats"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-title"><div><h2>最近案件</h2><p>最新建立或更新的案件</p></div><button class="btn small-btn" data-go="newCase">新增案件</button></div>
+          <div class="table-wrap"><table><thead><tr><th>案件編號</th><th>類型</th><th>標題</th><th>廠商</th><th>狀態</th><th>預計完成</th><th>最後回覆</th><th>操作</th></tr></thead><tbody id="recentCasesBody"></tbody></table></div>
+        </div>
+      </section>
+
+      <section id="newCase" class="section">
+        <div class="panel">
+          <div class="panel-title">
+            <div><h2>新增案件</h2><p>依序填寫基本資料、時程物流、問題說明與品項附件。建立後會自動產生案件編號與操作紀錄。</p></div>
+            <button class="btn ghost small-btn" type="button" data-go="caseList">回案件總表</button>
+          </div>
+          <form id="caseForm">
+            <div class="form-section">
+              <h3>基本資料</h3>
+              <div class="grid-3">
+                <div class="field"><label>案件類型</label><select id="caseType" required></select></div>
+                <div class="field"><label>案件標題</label><input id="caseTitle" placeholder="例如：YS 模組返修 10 片" required></div>
+                <div class="field"><label>優先度</label><select id="priority"><option>一般</option><option>急件</option><option>重大</option></select></div>
+              </div>
+              <div class="grid-3">
+                <div class="field"><label>申請地點</label><select id="locationId"></select></div>
+                <div class="field"><label>廠商</label><select id="vendorId"></select></div>
+                <div class="field"><label>內部負責人</label><input id="ownerName" placeholder="例如：白駿森"></div>
+              </div>
+            </div>
+            <div class="form-section">
+              <h3>時程與物流</h3>
+              <div class="grid-3">
+                <div class="field"><label>申請人</label><input id="applicantName" placeholder="提出申請的人"></div>
+                <div class="field"><label>送出日期</label><input id="shipDate" type="date"></div>
+                <div class="field"><label>預計完成日</label><input id="dueDate" type="date"></div>
+              </div>
+              <div class="grid-3">
+                <div class="field"><label>貨運 / 貨櫃 / 追蹤單號</label><input id="trackingNo" placeholder="順豐單號、貨櫃批號等"></div>
+                <div class="field"><label>回寄單號</label><input id="returnTrackingNo" placeholder="廠商修好回寄單號"></div>
+                <div class="field"><label>提醒天數</label><input id="reminderDays" type="number" min="1" value="14"></div>
+              </div>
+            </div>
+            <div class="form-section">
+              <h3 id="problemSectionTitle">問題與附件</h3>
+              <div class="field"><label>問題描述 / 需求說明</label><textarea id="description" placeholder="填寫故障狀況、料品需求原因、BUG 發生步驟或其他說明"></textarea></div>
+              <div class="field" id="caseAttachmentField">
+                <label>照片 / 附件</label>
+                <input id="attachments" type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.mp4,.mov">
+                <div class="dropzone small">可上傳問題照片、料品照片、SN 照片、BUG 影片。Supabase 模式會上傳到 Storage bucket：case-attachments。</div>
+              </div>
+            </div>
+            <div class="panel inner-panel">
+              <div class="panel-title"><div><h2>品項細項</h2><p>送修品項、料品申請、液晶面板 SN、BUG 設備都可在此建立，並統計成清單提供廠商處理。</p></div><button type="button" class="btn ghost small-btn" id="addItemBtn">新增品項</button></div>
+              <div class="hint small" style="margin-bottom:12px">液晶面板申請：案件標題相同會自動併入同一筆案件累計；SN 相同會更新原資料，SN 不同則新增清單項目。</div>
+              <div id="itemsEditor"></div>
+              <div id="itemsDraftSummary"></div>
+            </div>
+            <div class="row">
+              <button class="btn" type="submit">建立案件</button>
+              <button class="btn ghost" type="reset" id="resetCaseBtn">清空</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section id="caseList" class="section">
+        <div class="panel">
+          <div class="panel-title"><div><h2>案件總表</h2><p>可依案件類型、廠商、狀態、逾期與關鍵字查詢</p></div><button class="btn small-btn" id="exportCsvBtn">匯出 CSV</button></div>
+          <div class="cards compact-cards" id="caseListStats"></div>
+          <details class="filter-panel" open>
+            <summary>篩選條件</summary>
+            <div class="filter-body">
+              <div class="grid-3">
+                <div class="field"><label>關鍵字 / SN / 單號</label><input id="filterKeyword" placeholder="輸入關鍵字"></div>
+                <div class="field"><label>案件類型</label><select id="filterType"><option value="">全部</option></select></div>
+                <div class="field"><label>狀態</label><select id="filterStatus"><option value="">全部</option></select></div>
+              </div>
+              <div class="grid-3">
+                <div class="field"><label>廠商</label><select id="filterVendor"><option value="">全部</option></select></div>
+                <div class="field"><label>地點</label><select id="filterLocation"><option value="">全部</option></select></div>
+                <div class="field"><label>逾期</label><select id="filterOverdue"><option value="">全部</option><option value="soon">快逾期</option><option value="overdue">已逾期</option><option value="normal">未逾期</option></select></div>
+              </div>
+            </div>
+          </details>
+          <div class="table-wrap"><table><thead><tr><th>案件編號</th><th>類型</th><th>標題/說明</th><th>地點</th><th>廠商</th><th>狀態</th><th>單號</th><th>預計完成</th><th>逾期</th><th>負責人</th><th>操作</th></tr></thead><tbody id="caseTableBody"></tbody></table></div>
+        </div>
+      </section>
+
+      <section id="reminders" class="section">
+        <div class="panel">
+          <div class="panel-title"><div><h2>時效提醒</h2><p>系統依預計完成日、最後回覆日與提醒天數計算</p></div></div>
+          <div class="tabs" id="reminderTabs">
+            <button class="tab active" data-reminder="all">全部提醒</button>
+            <button class="tab" data-reminder="overdue">已逾期</button>
+            <button class="tab" data-reminder="soon">快逾期</button>
+            <button class="tab" data-reminder="noReply">廠商未回覆</button>
+            <button class="tab" data-reminder="urgentReply">急件催覆</button>
+            <button class="tab" data-reminder="notReceived">收件未確認</button>
+          </div>
+          <div id="reminderList"></div>
+        </div>
+      </section>
+
+      <section id="notifications" class="section">
+        <div class="panel">
+          <div class="panel-title"><div><h2>回覆通知 / 急件催覆</h2><p>只顯示目前登入帳號自己的通知；回覆身分依登入帳戶自動帶入，其他操作員的通知不會跳出，也不會被你標記已讀。急件與重大案件超過回覆門檻會顯示催覆。</p></div><button class="btn ghost small-btn" id="markAllNotificationsBtn">全部標記已讀/知悉</button></div>
+          <div class="cards" id="notificationSummary"></div>
+          <div class="tabs" id="notificationTabs">
+            <button class="tab active" data-notification="all">全部通知</button>
+            <button class="tab" data-notification="unread">未讀</button>
+            <button class="tab" data-notification="reply">新回覆</button>
+            <button class="tab" data-notification="urgent">急件催覆</button>
+            <button class="tab" data-notification="restock">補料通知</button>
+            <button class="tab" data-notification="vendorReminder">廠商未回覆</button>
+          </div>
+          <details class="help-panel">
+            <summary>通知與催覆規則</summary>
+            <div class="hint">急件門檻：重大案件 1 天沒有有效回覆就提醒；急件案件 2 天沒有有效回覆就提醒。廠商超過提醒天數未回覆 / 未更新，系統每日開啟或重新整理時會自動產生提醒。通知已讀狀態依登入帳號分開記錄，回覆訊息會記錄登入操作員，B 操作員查看案件也不會消除 A 的未讀通知。</div>
+          </details>
+          <div id="notificationList"></div>
+        </div>
+      </section>
+
+      <section id="vendorPortal" class="section">
+        <div class="panel">
+          <div class="panel-title"><div><h2>廠商工作台</h2><p>廠商登入後只看自己案件；公司端可用廠商篩選查看廠商待處理狀況。</p></div></div>
+          <details class="filter-panel" open>
+            <summary>篩選條件</summary>
+            <div class="filter-body">
+              <div class="grid-3">
+                <div class="field"><label>廠商</label><select id="vendorPortalVendor"><option value="">全部 / 依登入廠商</option></select></div>
+                <div class="field"><label>狀態</label><select id="vendorPortalStatus"><option value="">全部</option></select></div>
+                <div class="field"><label>只看需回覆</label><select id="vendorPortalNeed"><option value="">全部</option><option value="need">需回覆 / 逾期 / 急件</option></select></div>
+              </div>
+            </div>
+          </details>
+          <div class="cards compact-cards" id="vendorPortalStats"></div>
+          <div id="vendorPortalList"></div>
+        </div>
+      </section>
+
+      <section id="locationReview" class="section">
+        <div class="panel">
+          <div class="panel-title"><div><h2>地點申請統整</h2><p>集中整理各辦公地點提出的維修料品申請，方便統一彙整給廠商。</p></div></div>
+          <details class="filter-panel" open>
+            <summary>篩選條件</summary>
+            <div class="filter-body">
+              <div class="grid-3">
+                <div class="field"><label>地點</label><select id="locationReviewLocation"><option value="">全部地點</option></select></div>
+                <div class="field"><label>處理狀態</label><select id="locationReviewStatus"><option value="">全部</option></select></div>
+                <div class="field"><label>關鍵字</label><input id="locationReviewKeyword" placeholder="料品、規格、申請人"></div>
+              </div>
+            </div>
+          </details>
+          <div class="cards compact-cards" id="locationReviewStats"></div>
+          <div id="locationReviewList"></div>
+        </div>
+      </section>
+
+      <section id="containerBatches" class="section">
+        <div class="panel">
+          <div class="panel-title"><div><h2>貨櫃批次管理</h2><p>依貨櫃批號 / 追蹤單號彙整貨櫃送修案件，可查看批次品項、完成數量與未完成數量。</p></div><button class="btn small-btn" id="newContainerCaseBtn">新增貨櫃送修</button></div>
+          <details class="filter-panel" open>
+            <summary>篩選條件</summary>
+            <div class="filter-body">
+              <div class="grid-3">
+                <div class="field"><label>貨櫃批號 / 關鍵字</label><input id="containerKeyword" placeholder="例如：CONT-202606"></div>
+                <div class="field"><label>廠商</label><select id="containerVendor"><option value="">全部廠商</option></select></div>
+                <div class="field"><label>狀態</label><select id="containerStatus"><option value="">全部</option></select></div>
+              </div>
+            </div>
+          </details>
+          <div id="containerBatchList"></div>
+        </div>
+      </section>
+
+      <section id="vendorFollowup" class="section">
+        <div class="panel">
+          <div class="panel-title"><div><h2>催廠商清單</h2><p>整理所有需要催覆的案件，可快速複製催覆訊息或寫入催覆紀錄。</p></div></div>
+          <div class="tabs" id="followupTabs">
+            <button class="tab active" data-followup="all">全部需催覆</button>
+            <button class="tab" data-followup="urgent">急件/重大</button>
+            <button class="tab" data-followup="overdue">已逾期</button>
+            <button class="tab" data-followup="noReply">未回覆</button>
+          </div>
+          <div id="vendorFollowupList"></div>
+        </div>
+      </section>
+
+      <section id="reports" class="section">
+        <div class="panel">
+          <div class="panel-title"><div><h2>統計報表</h2><p>依類型、廠商、地點、負責人、狀態統計案件量與逾期量。</p></div><button class="btn ghost small-btn" id="exportReportBtn">匯出報表 Excel</button></div>
+          <div class="cards" id="reportSummary"></div>
+          <div class="grid-2">
+            <div class="panel inner-panel"><div class="panel-title"><div><h2>廠商統計</h2><p>未結案、逾期、需催覆</p></div></div><div id="reportVendorTable"></div></div>
+            <div class="panel inner-panel"><div class="panel-title"><div><h2>類型統計</h2><p>五種表單案件量</p></div></div><div id="reportTypeTable"></div></div>
+          </div>
+          <div class="grid-2">
+            <div class="panel inner-panel"><div class="panel-title"><div><h2>地點統計</h2><p>各辦公地點申請量</p></div></div><div id="reportLocationTable"></div></div>
+            <div class="panel inner-panel"><div class="panel-title"><div><h2>負責人統計</h2><p>內部負責人案件量</p></div></div><div id="reportOwnerTable"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="importExport" class="section">
+        <div class="panel">
+          <div class="panel-title"><div><h2>匯入 / 匯出</h2><p>支援案件 Excel 匯出、CSV 匯入。匯入前建議先匯出範本。</p></div></div>
+          <div class="grid-2">
+            <div class="item-box">
+              <h3>匯出</h3>
+              <p class="muted small">Excel 匯出會包含案件主資料與統計報表，CSV 可供簡易備份。</p>
+              <div class="row"><button class="btn" id="exportExcelBtn">匯出案件 Excel</button><button class="btn ghost" id="exportTemplateBtn">下載匯入範本 CSV</button></div>
+            </div>
+            <div class="item-box">
+              <h3>CSV 匯入</h3>
+              <p class="muted small">欄位：案件類型、案件標題、優先度、地點、廠商、申請人、負責人、單號、預計完成日、品項、規格、SN、數量、問題描述。</p>
+              <input id="importCsvFile" type="file" accept=".csv,text/csv">
+              <div class="row" style="margin-top:12px"><button class="btn" id="importCsvBtn">匯入 CSV</button></div>
+            </div>
+          </div>
+          <div id="importPreview" class="hint">尚未匯入資料。</div>
+        </div>
+      </section>
+
+      <section id="settings" class="section">
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-title"><div><h2>廠商清單</h2><p>可新增、停用廠商</p></div></div>
+            <details class="filter-panel">
+              <summary>新增廠商</summary>
+              <div class="filter-body">
+                <div class="grid-2">
+                  <div class="field"><label>廠商名稱</label><input id="newVendorName" placeholder="例如：YS"></div>
+                  <div class="field"><label>預設提醒天數</label><input id="newVendorSla" type="number" min="1" value="14"></div>
+                </div>
+                <div class="grid-2">
+                  <div class="field"><label>聯絡人</label><input id="newVendorContact"></div>
+                  <div class="field"><label>Email</label><input id="newVendorEmail"></div>
+                </div>
+                <button class="btn" id="addVendorBtn">新增廠商</button>
+              </div>
+            </details>
+            <div id="vendorsList" style="margin-top:14px"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-title"><div><h2>辦公地點</h2><p>不同地點可提出申請</p></div></div>
+            <details class="filter-panel">
+              <summary>新增地點</summary>
+              <div class="filter-body">
+                <div class="grid-2">
+                  <div class="field"><label>地點名稱</label><input id="newLocationName" placeholder="例如：台北辦公室"></div>
+                  <div class="field"><label>地點負責人</label><select id="newLocationManager"><option value="">未指定</option></select></div>
+                </div>
+                <button class="btn" id="addLocationBtn">新增地點</button>
+              </div>
+            </details>
+            <div id="locationsList" style="margin-top:14px"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-title"><div><h2>目前帳號 / 權限說明</h2><p>正式版建議由管理者在 Supabase profiles 表調整角色</p></div></div>
+          <div id="profileInfo"></div>
+        </div>
+        <div class="panel hidden" id="adminCloudConfig">
+          <div class="panel-title"><div><h2>雲端連線設定</h2><p>僅管理者可查看，避免其他角色誤改 Supabase 連線資訊。</p></div></div>
+          <div id="adminCloudConfigInfo"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-title"><div><h2>帳號 / 廠商權限管理</h2><p>管理者可直接調整角色、啟用停用帳號，並將廠商帳號綁定到指定廠商。</p></div></div>
+          <div id="accountAdminList"></div>
+        </div>
+      </section>
+
+      <section id="logs" class="section">
+        <div class="panel">
+          <div class="panel-title"><div><h2>操作紀錄</h2><p>新增、修改、回覆、結案與設定變更都會記錄</p></div></div>
+          <div class="table-wrap"><table><thead><tr><th>時間</th><th>案件</th><th>動作</th><th>操作人</th><th>內容</th></tr></thead><tbody id="logsBody"></tbody></table></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="caseModal" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <div><h2 id="modalTitle">案件明細</h2><div id="modalSub" class="small muted"></div></div>
+        <div class="row"><button class="btn ghost small-btn" id="printCaseBtn">列印</button><button class="btn ghost small-btn" id="closeModalBtn">關閉</button></div>
+      </div>
+      <div class="modal-body">
+        <div class="modal-tabs">
+          <button class="tab active" data-modal-tab="basic">基本資料</button>
+          <button class="tab" data-modal-tab="items">品項明細</button>
+          <button class="tab" data-modal-tab="attachmentsTab">附件照片</button>
+          <button class="tab" data-modal-tab="replies">廠商回覆</button>
+          <button class="tab" data-modal-tab="caseLogs">操作紀錄</button>
+        </div>
+        <div id="modalContent"></div>
+      </div>
+    </div>
+  </div>
+  <div class="toast-wrap" id="toastWrap"></div>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
