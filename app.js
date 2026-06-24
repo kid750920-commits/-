@@ -233,7 +233,15 @@
     const userId = currentUserId();
     if(userId && c.created_by && c.created_by === userId) return true;
     const identities = currentIdentitySet();
-    return [c.owner_name, c.applicant_name].some(v => identities.has(identityText(v)));
+    return [c.owner_name, c.applicant_name].some(v => identities.has(identityText(v))) || caseReturnLocationBelongsToCurrentUser(c);
+  }
+  function caseReturnLocationBelongsToCurrentUser(c){
+    const returnLocationId = c?.return_location_id;
+    if(!returnLocationId) return false;
+    if(state.profile?.location_id && state.profile.location_id === returnLocationId) return true;
+    const loc = byId(state.data.locations, returnLocationId);
+    if(!loc?.manager_name) return false;
+    return currentIdentitySet().has(identityText(loc.manager_name));
   }
   function shouldShowPersonalCaseNotice(c){
     if(isViewer()) return false;
@@ -646,12 +654,24 @@
     const locOptions = ['<option value="">未指定</option>'].concat(state.data.locations.filter(l => l.is_active !== false).map(l => `<option value="${l.id}">${safe(l.location_name)}</option>`)).join('');
     const profileOptions = ['<option value="">未指定</option>'].concat(profileOptionRows().map(p => `<option value="${safe(p.value)}">${safe(p.label)}</option>`)).join('');
     ['vendorId'].forEach(id => { if($(id)) $(id).innerHTML = vendorOptions; });
-    ['locationId'].forEach(id => { if($(id)) $(id).innerHTML = locOptions; });
+    ['locationId','returnLocationId'].forEach(id => { if($(id)) $(id).innerHTML = locOptions; });
     if($('newLocationManager')) $('newLocationManager').innerHTML = profileOptions;
     if($('filterVendor')) $('filterVendor').innerHTML = '<option value="">全部</option>' + state.data.vendors.map(v => `<option value="${v.id}">${safe(v.vendor_name)}</option>`).join('');
     if($('filterLocation')) $('filterLocation').innerHTML = '<option value="">全部</option>' + state.data.locations.map(l => `<option value="${l.id}">${safe(l.location_name)}</option>`).join('');
     ['vendorPortalVendor','containerVendor'].forEach(id => { if($(id)) $(id).innerHTML = '<option value="">全部 / 依登入廠商</option>' + state.data.vendors.map(v => `<option value="${v.id}">${safe(v.vendor_name)}</option>`).join(''); });
     if($('locationReviewLocation')) $('locationReviewLocation').innerHTML = '<option value="">全部地點</option>' + state.data.locations.map(l => `<option value="${l.id}">${safe(l.location_name)}</option>`).join('');
+  }
+  function locationSelectOptions(selected='', placeholder='未指定'){
+    const rows = state.data.locations
+      .filter(l => l.is_active !== false)
+      .map(l => `<option value="${safe(l.id)}" ${l.id===selected?'selected':''}>${safe(l.location_name)}</option>`);
+    return [`<option value="" ${selected?'':'selected'}>${placeholder}</option>`, ...rows].join('');
+  }
+  function returnLocationId(c){
+    return c?.return_location_id || '';
+  }
+  function returnLocationName(c){
+    return returnLocationId(c) ? locationName(returnLocationId(c)) : '-';
   }
 
   function onTypeChange(){
@@ -777,6 +797,7 @@
         owner_name: $('ownerName').value.trim() || currentName(),
         tracking_no: $('trackingNo').value.trim(),
         return_tracking_no: $('returnTrackingNo').value.trim(),
+        return_location_id: $('returnLocationId').value || null,
         ship_date: shipDate || null,
         vendor_received_date: null,
         due_date: due,
@@ -796,6 +817,7 @@
         await dbUpdate('cases', existingLcdCase.id, {
           vendor_id: row.vendor_id || existingLcdCase.vendor_id,
           location_id: row.location_id || existingLcdCase.location_id,
+          return_location_id: row.return_location_id || existingLcdCase.return_location_id || null,
           owner_name: row.owner_name || existingLcdCase.owner_name,
           applicant_name: row.applicant_name || existingLcdCase.applicant_name,
           description: row.description ? [existingLcdCase.description, row.description].filter(Boolean).join('\n---\n') : existingLcdCase.description,
@@ -1006,7 +1028,7 @@
   function visibleCases(){
     let cases = [...state.data.cases];
     if(isVendor() && state.profile?.vendor_id) cases = cases.filter(c => c.vendor_id === state.profile.vendor_id);
-    if(currentRole() === 'viewer' && state.profile?.location_id) cases = cases.filter(c => c.location_id === state.profile.location_id);
+    if(currentRole() === 'viewer' && state.profile?.location_id) cases = cases.filter(c => c.location_id === state.profile.location_id || c.return_location_id === state.profile.location_id);
     return cases.sort((a,b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
   }
 
@@ -1102,7 +1124,7 @@
     let cases = visibleCases();
     if(kw){
       const itemCases = state.data.case_items.filter(i => [i.item_name,i.spec,i.sn,i.problem_desc].join(' ').toLowerCase().includes(kw)).map(i => i.case_id);
-      cases = cases.filter(c => [c.case_no,c.case_type,c.title,c.status,c.tracking_no,c.return_tracking_no,c.description,c.owner_name,c.applicant_name].join(' ').toLowerCase().includes(kw) || itemCases.includes(c.id));
+      cases = cases.filter(c => [c.case_no,c.case_type,c.title,c.status,c.tracking_no,c.return_tracking_no,returnLocationName(c),c.description,c.owner_name,c.applicant_name].join(' ').toLowerCase().includes(kw) || itemCases.includes(c.id));
     }
     if(type) cases = cases.filter(c => normalizeCaseType(c.case_type) === type);
     if(status) cases = cases.filter(c => c.status === status);
@@ -1127,7 +1149,7 @@
         <td>${safe(locationName(c.location_id))}</td>
         <td>${safe(vendorName(c.vendor_id))}</td>
         <td>${statusBadge(c.status)}</td>
-        <td>${safe(c.tracking_no || '-')}<div class="small muted">回寄：${safe(c.return_tracking_no || '-')}</div></td>
+        <td>${safe(c.tracking_no || '-')}<div class="small muted">回寄：${safe(c.return_tracking_no || '-')}</div><div class="small muted">回寄地點：${safe(returnLocationName(c))}</div></td>
         <td>${dateText(c.due_date)}</td>
         <td>${reminderBadge(calc)}</td>
         <td>${safe(c.owner_name || '-')}</td>
@@ -1191,7 +1213,7 @@
       const id = `reply-${r.id}`;
       items.push({
         id, kind:'reply', title:`${r.reply_role}有新回覆`, case:c, created_at:r.created_at,
-        message:r.message, meta:`回覆者：${r.reply_by || '-'}${r.reply_by_email ? '｜帳號：' + displayAccountValue(r.reply_by_email) : ''}｜通知帳號：${currentName()}｜${dateTimeText(r.created_at)}`,
+        message:r.message, meta:`回覆者：${r.reply_by || '-'}${r.reply_by_email ? '｜帳號：' + displayAccountValue(r.reply_by_email) : ''}｜通知帳號：${currentName()}｜回寄地點：${returnLocationName(c)}｜${dateTimeText(r.created_at)}`,
         read:!!reads[id]
       });
     });
@@ -1203,7 +1225,7 @@
       items.push({
         id, kind:'urgent', title:`${c.priority}需盡快回覆`, case:c, created_at:c.updated_at || c.created_at,
         message:`${c.priority}案件已 ${calc.noReplyDays} 天未有有效回覆，建議立即催覆或更新進度。`,
-        meta:`廠商：${vendorName(c.vendor_id)}｜狀態：${c.status}｜提醒門檻：${calc.urgentThreshold} 天`,
+        meta:`廠商：${vendorName(c.vendor_id)}｜回寄地點：${returnLocationName(c)}｜狀態：${c.status}｜提醒門檻：${calc.urgentThreshold} 天`,
         read:!!reads[id]
       });
     });
@@ -1218,7 +1240,7 @@
         message:isVendor()
           ? `此案件已 ${calc.noReplyDays} 天未更新進度，已超過提醒天數 ${c.reminder_days || 7} 天。請回覆目前處理進度、預計完成日與是否需要我司補充資料。`
           : `廠商已 ${calc.noReplyDays} 天未回覆 / 未更新進度，已超過提醒天數 ${c.reminder_days || 7} 天。請催覆廠商，或請廠商登入工作台回覆最新進度。`,
-        meta:`廠商：${vendorName(c.vendor_id)}｜預計完成：${dateText(c.due_date)}｜最後活動：${dateTimeText(latestCaseActivityAt(c))}`,
+        meta:`廠商：${vendorName(c.vendor_id)}｜回寄地點：${returnLocationName(c)}｜預計完成：${dateText(c.due_date)}｜最後活動：${dateTimeText(latestCaseActivityAt(c))}`,
         read:!!reads[id]
       });
     });
@@ -1232,7 +1254,7 @@
       items.push({
         id, kind:'restock', title:'液晶面板補料通知', case:c, created_at:l.created_at,
         message:l.detail || '液晶面板補料已登記，請確認本次補料對應的 SN 與貨櫃號碼。',
-        meta:`操作人：${l.actor_name || '-'}｜通知帳號：${currentName()}｜${dateTimeText(l.created_at)}`,
+        meta:`操作人：${l.actor_name || '-'}｜通知帳號：${currentName()}｜回寄地點：${returnLocationName(c)}｜${dateTimeText(l.created_at)}`,
         read:!!reads[id]
       });
     });
@@ -1357,7 +1379,7 @@
       return `<div class="item-box ${priorityRowClass(c.priority, calc)}">
         <div class="row" style="justify-content:space-between"><div><b>${safe(c.case_no)}</b> ${typeBadge(c.case_type)} ${priorityBadge(c.priority)} ${urgentBadge(calc)}</div>${statusBadge(c.status)}</div>
         <h3 style="margin:10px 0 8px">${safe(c.title)}</h3>
-        <div class="grid-3 small muted"><div>廠商：${safe(vendorName(c.vendor_id))}</div><div>預計完成：${dateText(c.due_date)}</div><div>最後回覆：${dateTimeText(c.last_reply_at)}</div><div>單號/批號：${safe(c.tracking_no||'-')}</div><div>回寄：${safe(c.return_tracking_no||'-')}</div><div>品項：${items.length} 筆</div></div>
+        <div class="grid-3 small muted"><div>廠商：${safe(vendorName(c.vendor_id))}</div><div>預計完成：${dateText(c.due_date)}</div><div>最後回覆：${dateTimeText(c.last_reply_at)}</div><div>單號/批號：${safe(c.tracking_no||'-')}</div><div>回寄：${safe(c.return_tracking_no||'-')}</div><div>回寄地點：${safe(returnLocationName(c))}</div><div>品項：${items.length} 筆</div></div>
         ${lcdSummary}
         <p class="small muted" style="line-height:1.7">${safe((c.description||'').slice(0,120))}${(c.description||'').length>120?'…':''}</p>
         <div class="row"><button class="btn ghost small-btn" onclick="window.VCS.openCase('${c.id}')">查看案件</button><button class="btn small-btn" onclick="window.VCS.openCase('${c.id}','replies')">回覆進度</button></div>
@@ -1671,7 +1693,7 @@
     state.selectedCase = c;
     if(tab === 'replies') markCaseRepliesRead(id);
     $('modalTitle').textContent = `${c.case_no}｜${c.title}`;
-    $('modalSub').innerHTML = `${typeBadge(c.case_type)} ${statusBadge(c.status)} ${priorityBadge(c.priority)} <span class="muted">廠商：${safe(vendorName(c.vendor_id))}｜地點：${safe(locationName(c.location_id))}</span>`;
+    $('modalSub').innerHTML = `${typeBadge(c.case_type)} ${statusBadge(c.status)} ${priorityBadge(c.priority)} <span class="muted">廠商：${safe(vendorName(c.vendor_id))}｜送修地點：${safe(locationName(c.location_id))}｜回寄地點：${safe(returnLocationName(c))}</span>`;
     $('caseModal').classList.remove('hidden');
     renderCaseModal(tab);
   }
@@ -1696,6 +1718,7 @@
     const editCore = canEditCore();
     const editAny = canEditCase(c);
     const statusOptions = STATUS.filter(s => editCore || VENDOR_STATUS.includes(s) || s === c.status).map(s => `<option ${s===c.status?'selected':''}>${safe(s)}</option>`).join('');
+    const returnLocationOptions = locationSelectOptions(returnLocationId(c), '未指定 / 同送修地點');
     return `<div class="modal-tab-content active">
       ${automationStatusHtml(c)}
       <div class="grid-3">
@@ -1711,6 +1734,9 @@
       <div class="grid-3">
         <div class="field"><label>追蹤單號 / 貨櫃批號</label><input id="mTrackingNo" value="${safe(c.tracking_no||'')}" ${editCore?'':'disabled'}></div>
         <div class="field"><label>回寄單號</label><input id="mReturnTrackingNo" value="${safe(c.return_tracking_no||'')}" ${editAny?'':'disabled'}></div>
+        <div class="field"><label>回寄地點</label><select id="mReturnLocationId" ${editAny?'':'disabled'}>${returnLocationOptions}</select></div>
+      </div>
+      <div class="grid-3">
         <div class="field"><label>內部負責人</label><input id="mOwnerName" value="${safe(c.owner_name||'')}" ${editCore?'':'disabled'}></div>
       </div>
       <div class="field"><label>問題描述 / 需求說明</label><textarea id="mDescription" ${editCore?'':'disabled'}>${safe(c.description||'')}</textarea></div>
@@ -1854,6 +1880,7 @@
         reminder_days:Number($('mReminderDays').value || 14),
         tracking_no:$('mTrackingNo')?.value?.trim() || c.tracking_no,
         return_tracking_no:$('mReturnTrackingNo').value.trim(),
+        return_location_id:$('mReturnLocationId')?.value || null,
         owner_name:$('mOwnerName')?.value?.trim() || c.owner_name,
         description:$('mDescription')?.value?.trim() || c.description,
         closed_at: CLOSED_STATUS.includes(status) ? (c.closed_at || nowIso()) : null,
@@ -2022,8 +2049,8 @@
 
   function csvEscape(v){ return `"${String(v??'').replaceAll('"','""')}"`; }
   function buildCaseRows(cases=visibleCases()){
-    const header = ['案件編號','案件類型','案件標題','優先度','狀態','逾期狀態','逾期天數','廠商回覆狀態','廠商未回覆天數','上次自動提醒','地點','廠商','申請人','負責人','追蹤單號','回寄單號','送出日期','廠商收件日','預計完成日','提醒天數','最後回覆','問題描述'];
-    const rows = cases.map(c => { const calc = calcCase(c); return [c.case_no,normalizeCaseType(c.case_type),c.title,c.priority,c.status,c.overdue_status || (calc.overdue?'已逾期':calc.soon?'快逾期':'正常'),calc.overdueDays,c.vendor_reply_status || (calc.noReply?'廠商未回覆':'正常'),calc.noReplyDays,c.last_vendor_reminder_date,locationName(c.location_id),vendorName(c.vendor_id),c.applicant_name,c.owner_name,c.tracking_no,c.return_tracking_no,c.ship_date,c.vendor_received_date,c.due_date,c.reminder_days,c.last_reply_at,c.description]; });
+    const header = ['案件編號','案件類型','案件標題','優先度','狀態','逾期狀態','逾期天數','廠商回覆狀態','廠商未回覆天數','上次自動提醒','地點','回寄地點','廠商','申請人','負責人','追蹤單號','回寄單號','送出日期','廠商收件日','預計完成日','提醒天數','最後回覆','問題描述'];
+    const rows = cases.map(c => { const calc = calcCase(c); return [c.case_no,normalizeCaseType(c.case_type),c.title,c.priority,c.status,c.overdue_status || (calc.overdue?'已逾期':calc.soon?'快逾期':'正常'),calc.overdueDays,c.vendor_reply_status || (calc.noReply?'廠商未回覆':'正常'),calc.noReplyDays,c.last_vendor_reminder_date,locationName(c.location_id),returnLocationName(c),vendorName(c.vendor_id),c.applicant_name,c.owner_name,c.tracking_no,c.return_tracking_no,c.ship_date,c.vendor_received_date,c.due_date,c.reminder_days,c.last_reply_at,c.description]; });
     return [header, ...rows];
   }
 
@@ -2057,7 +2084,7 @@
   }
 
   function exportImportTemplate(){
-    const rows = [["案件類型","案件標題","優先度","地點","廠商","申請人","負責人","單號","預計完成日","品項","規格","SN","數量","問題描述"], ["維修料品申請","範例：廠房A申請電源","急件","廠房 A","YS 廠商","地點負責人","白駿森","","2026-07-01","電源","百納","","5","維修備料申請"]];
+    const rows = [["案件類型","案件標題","優先度","地點","回寄地點","廠商","申請人","負責人","單號","預計完成日","品項","規格","SN","數量","問題描述"], ["維修料品申請","範例：廠房A申請電源","急件","廠房 A","總公司","YS 廠商","地點負責人","白駿森","","2026-07-01","電源","百納","","5","維修備料申請"]];
     downloadText(`案件匯入範本_${toDateInput(new Date())}.csv`, '\ufeff' + rows.map(r=>r.map(csvEscape).join(',')).join('\n'), 'text/csv;charset=utf-8');
   }
 
@@ -2092,8 +2119,9 @@
       const type = CASE_TYPES.find(t => t.value === caseType) || CASE_TYPES[2];
       const vendor = mapByName(state.data.vendors, 'vendor_name', get('廠商'));
       const loc = mapByName(state.data.locations, 'location_name', get('地點'));
+      const returnLoc = mapByName(state.data.locations, 'location_name', get('回寄地點'));
       const dueDate = get('預計完成日') || addDaysInput(new Date(), type.defaultDays);
-      const row = { id:uid(), case_no:await nextCaseNo(type.prefix), case_type:type.value, title:get('案件標題') || 'CSV 匯入案件', status:'待整理', priority:get('優先度') || '一般', location_id:loc?.id || null, vendor_id:vendor?.id || null, applicant_name:get('申請人') || currentName(), owner_name:get('負責人') || currentName(), tracking_no:get('單號'), return_tracking_no:'', ship_date:null, vendor_received_date:null, due_date:dueDate, reminder_days:type.defaultDays, description:get('問題描述'), last_reply_at:null, closed_at:null, created_by:state.user?.id||null, updated_by:state.user?.id||null, created_at:nowIso(), updated_at:nowIso() };
+      const row = { id:uid(), case_no:await nextCaseNo(type.prefix), case_type:type.value, title:get('案件標題') || 'CSV 匯入案件', status:'待整理', priority:get('優先度') || '一般', location_id:loc?.id || null, return_location_id:returnLoc?.id || null, vendor_id:vendor?.id || null, applicant_name:get('申請人') || currentName(), owner_name:get('負責人') || currentName(), tracking_no:get('單號'), return_tracking_no:'', ship_date:null, vendor_received_date:null, due_date:dueDate, reminder_days:type.defaultDays, description:get('問題描述'), last_reply_at:null, closed_at:null, created_by:state.user?.id||null, updated_by:state.user?.id||null, created_at:nowIso(), updated_at:nowIso() };
       const c = await dbInsert('cases', row);
       if(get('品項') || get('問題描述')) await dbInsert('case_items', { id:uid(), case_id:c.id, item_name:get('品項'), spec:get('規格'), sn:get('SN'), qty:Number(get('數量')||1), problem_desc:get('問題描述'), vendor_result:'', completed_qty:0, pending_qty:Number(get('數量')||1), created_at:nowIso() });
       await addLog(c, 'CSV 匯入案件', c.title);
@@ -2104,8 +2132,8 @@
   }
 
   function exportCsv(){
-    const rows = [['案件編號','類型','標題','狀態','逾期狀態','逾期天數','廠商回覆狀態','未回覆天數','上次自動提醒','地點','廠商','單號','回寄單號','預計完成','最後回覆','負責人']];
-    visibleCases().forEach(c => { const calc = calcCase(c); rows.push([c.case_no,normalizeCaseType(c.case_type),c.title,c.status,c.overdue_status || (calc.overdue?'已逾期':calc.soon?'快逾期':'正常'),calc.overdueDays,c.vendor_reply_status || (calc.noReply?'廠商未回覆':'正常'),calc.noReplyDays,c.last_vendor_reminder_date,locationName(c.location_id),vendorName(c.vendor_id),c.tracking_no,c.return_tracking_no,c.due_date,c.last_reply_at,c.owner_name]); });
+    const rows = [['案件編號','類型','標題','狀態','逾期狀態','逾期天數','廠商回覆狀態','未回覆天數','上次自動提醒','地點','回寄地點','廠商','單號','回寄單號','預計完成','最後回覆','負責人']];
+    visibleCases().forEach(c => { const calc = calcCase(c); rows.push([c.case_no,normalizeCaseType(c.case_type),c.title,c.status,c.overdue_status || (calc.overdue?'已逾期':calc.soon?'快逾期':'正常'),calc.overdueDays,c.vendor_reply_status || (calc.noReply?'廠商未回覆':'正常'),calc.noReplyDays,c.last_vendor_reminder_date,locationName(c.location_id),returnLocationName(c),vendorName(c.vendor_id),c.tracking_no,c.return_tracking_no,c.due_date,c.last_reply_at,c.owner_name]); });
     const csv = '\ufeff' + rows.map(r => r.map(v => `"${String(v??'').replaceAll('"','""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `廠商協作案件_${toDateInput(new Date())}.csv`; a.click(); URL.revokeObjectURL(a.href);
