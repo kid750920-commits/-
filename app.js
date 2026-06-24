@@ -22,9 +22,11 @@
     { value:'程式BUG回報', prefix:'BUG', defaultDays:7, hint:'適合記錄機器設備程式 BUG、發生步驟、廠商修正版本與測試結果。' }
   ];
 
-  const STATUS = ['草稿','待整理','待送出廠商','已送出廠商','廠商已收件','廠商處理中','待廠商回覆','待我司確認','已完成','已退回/已到貨','結案','取消'];
+  const STATUS = ['草稿','待負責人審核','審核退回','待整理','待送出廠商','已送出廠商','廠商已收件','廠商處理中','待廠商回覆','待我司確認','已完成','已退回/已到貨','結案','取消'];
   const CLOSED_STATUS = ['結案','取消'];
   const VENDOR_STATUS = ['廠商已收件','廠商處理中','待我司確認','已完成','已退回/已到貨'];
+  const PART_CASE_TYPE = '維修料品申請';
+  const REVIEW_STATUS = { pending:'pending', approved:'approved', rejected:'rejected' };
 
   const state = {
     client: null,
@@ -54,7 +56,7 @@
     const loc1 = { id:uid(), location_name:'總公司', manager_name:'白駿森', remark:'', is_active:true, created_at:nowIso() };
     const loc2 = { id:uid(), location_name:'廠房 A', manager_name:'地點負責人', remark:'', is_active:true, created_at:nowIso() };
     const c1 = { id:uid(), case_no:'SF-' + compactDate(now) + '-001', case_type:'順豐送修', title:'模組返修 10 片', status:'已送出廠商', priority:'一般', location_id:loc1.id, vendor_id:vendor1.id, applicant_name:'白駿森', owner_name:'白駿森', tracking_no:'SF123456789', return_tracking_no:'', ship_date:date, vendor_received_date:'', due_date:addDaysInput(now,14), reminder_days:14, description:'測試展示案件：模組顯示異常，已由順豐寄出。', last_reply_at:'', closed_at:'', created_by:'demo-admin', updated_by:'demo-admin', created_at:nowIso(), updated_at:nowIso(), overdue_status:'正常', overdue_days:0, vendor_reply_status:'正常', vendor_no_reply_days:0, last_overdue_check_date:toLocalDateInput(new Date()), last_vendor_reminder_date:null, last_vendor_reminder_at:null, auto_reminder_count:0 };
-    const c2 = { id:uid(), case_no:'PART-' + compactDate(now) + '-001', case_type:'維修料品申請', title:'廠房 A 申請電源維修料品', status:'廠商處理中', priority:'急件', location_id:loc2.id, vendor_id:vendor1.id, applicant_name:'地點負責人', owner_name:'白駿森', tracking_no:'', return_tracking_no:'', ship_date:'', vendor_received_date:'', due_date:addDaysInput(now,7), reminder_days:7, description:'申請維修電源 5 顆，廠商需回覆是否有貨。', last_reply_at:addDaysInput(now,-2) + 'T09:00:00.000Z', closed_at:'', created_by:'demo-admin', updated_by:'demo-admin', created_at:nowIso(), updated_at:nowIso(), overdue_status:'正常', overdue_days:0, vendor_reply_status:'正常', vendor_no_reply_days:0, last_overdue_check_date:toLocalDateInput(new Date()), last_vendor_reminder_date:null, last_vendor_reminder_at:null, auto_reminder_count:0 };
+    const c2 = { id:uid(), case_no:'PART-' + compactDate(now) + '-001', case_type:'維修料品申請', title:'廠房 A 申請電源維修料品', status:'廠商處理中', priority:'急件', location_id:loc2.id, vendor_id:vendor1.id, applicant_name:'地點負責人', owner_name:'白駿森', tracking_no:'', return_tracking_no:'', ship_date:'', vendor_received_date:'', due_date:addDaysInput(now,7), reminder_days:7, description:'申請維修電源 5 顆，廠商需回覆是否有貨。', review_status:REVIEW_STATUS.approved, review_note:'', reviewed_by:'demo-admin', reviewed_at:nowIso(), last_reply_at:addDaysInput(now,-2) + 'T09:00:00.000Z', closed_at:'', created_by:'demo-admin', updated_by:'demo-admin', created_at:nowIso(), updated_at:nowIso(), overdue_status:'正常', overdue_days:0, vendor_reply_status:'正常', vendor_no_reply_days:0, last_overdue_check_date:toLocalDateInput(new Date()), last_vendor_reminder_date:null, last_vendor_reminder_at:null, auto_reminder_count:0 };
     return {
       vendors:[vendor1,vendor2],
       locations:[loc1,loc2],
@@ -94,6 +96,40 @@
   }
   function isLcdCase(c){
     return normalizeCaseType(c?.case_type) === LCD_CASE_TYPE;
+  }
+  function isPartCase(cOrType){
+    const type = typeof cOrType === 'string' ? cOrType : cOrType?.case_type;
+    return normalizeCaseType(type) === PART_CASE_TYPE;
+  }
+  function reviewStatus(c){
+    if(!isPartCase(c)) return REVIEW_STATUS.approved;
+    return c?.review_status || REVIEW_STATUS.approved;
+  }
+  function needsReview(c){
+    return isPartCase(c) && reviewStatus(c) === REVIEW_STATUS.pending;
+  }
+  function reviewRejected(c){
+    return isPartCase(c) && reviewStatus(c) === REVIEW_STATUS.rejected;
+  }
+  function isMainTableCase(c){
+    return !isPartCase(c) || reviewStatus(c) === REVIEW_STATUS.approved;
+  }
+  function caseOwnerMatchesCurrentUser(c){
+    return currentIdentitySet().has(identityText(c?.owner_name));
+  }
+  function caseApplicantMatchesCurrentUser(c){
+    const userId = currentUserId();
+    if(userId && c?.created_by && c.created_by === userId) return true;
+    const identities = currentIdentitySet();
+    return [c?.applicant_name].some(v => identities.has(identityText(v)));
+  }
+  function canReviewCase(c){
+    if(!needsReview(c) || isViewer() || isVendor()) return false;
+    return isAdmin() || caseOwnerMatchesCurrentUser(c);
+  }
+  function canResubmitReview(c){
+    if(!reviewRejected(c) || isViewer() || isVendor()) return false;
+    return isAdmin() || caseApplicantMatchesCurrentUser(c) || caseOwnerMatchesCurrentUser(c);
   }
   function normalizedTitle(v){
     return String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -781,6 +817,7 @@
     try{
       const case_type = $('caseType').value;
       const type = CASE_TYPES.find(t => t.value === case_type) || CASE_TYPES[0];
+      const partReviewRequired = isPartCase(case_type);
       const reminderDays = Number($('reminderDays').value || type.defaultDays);
       const shipDate = $('shipDate').value;
       const due = $('dueDate').value || addDaysInput(shipDate ? new Date(shipDate) : new Date(), reminderDays);
@@ -789,7 +826,7 @@
         case_no: await nextCaseNo(type.prefix),
         case_type,
         title: $('caseTitle').value.trim(),
-        status: '待整理',
+        status: partReviewRequired ? '待負責人審核' : '待整理',
         priority: $('priority').value,
         location_id: $('locationId').value || null,
         vendor_id: $('vendorId').value || null,
@@ -803,6 +840,10 @@
         due_date: due,
         reminder_days: reminderDays,
         description: $('description').value.trim(),
+        review_status: partReviewRequired ? REVIEW_STATUS.pending : REVIEW_STATUS.approved,
+        review_note: '',
+        reviewed_by: null,
+        reviewed_at: null,
         last_reply_at: null,
         closed_at: null,
         created_by: state.user?.id || null,
@@ -858,7 +899,7 @@
       resetItemsEditor();
       await refreshAll();
       showSection('caseList');
-      toast(existingLcdCase ? '已併入同標題液晶案件' : '案件已建立');
+      toast(existingLcdCase ? '已併入同標題液晶案件' : partReviewRequired ? '申請單已建立，會通知負責人審核' : '案件已建立');
     }catch(err){ console.error(err); toast(err.message || '建立案件失敗', 'bad'); }
   }
 
@@ -1031,6 +1072,9 @@
     if(currentRole() === 'viewer' && state.profile?.location_id) cases = cases.filter(c => c.location_id === state.profile.location_id || c.return_location_id === state.profile.location_id);
     return cases.sort((a,b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
   }
+  function visibleMainCases(){
+    return visibleCases().filter(isMainTableCase);
+  }
 
   function calcCase(c){
     const due = c.due_date ? new Date(c.due_date) : null;
@@ -1084,7 +1128,7 @@
 
   function renderDashboard(){
     if(!$('dashboardCards')) return;
-    const cases = visibleCases();
+    const cases = visibleMainCases();
     const open = cases.filter(c => !CLOSED_STATUS.includes(c.status));
     const overdue = cases.filter(c => calcCase(c).overdue);
     const soon = cases.filter(c => calcCase(c).soon);
@@ -1121,7 +1165,7 @@
     const vendor = $('filterVendor').value;
     const location = $('filterLocation').value;
     const overdue = $('filterOverdue').value;
-    let cases = visibleCases();
+    let cases = visibleMainCases();
     if(kw){
       const itemCases = state.data.case_items.filter(i => [i.item_name,i.spec,i.sn,i.problem_desc].join(' ').toLowerCase().includes(kw)).map(i => i.case_id);
       cases = cases.filter(c => [c.case_no,c.case_type,c.title,c.status,c.tracking_no,c.return_tracking_no,returnLocationName(c),c.description,c.owner_name,c.applicant_name].join(' ').toLowerCase().includes(kw) || itemCases.includes(c.id));
@@ -1145,7 +1189,7 @@
       return `<tr class="${priorityRowClass(c.priority, calc)}">
         <td><b>${safe(c.case_no)}</b><div class="small muted">${dateText(c.created_at)}</div></td>
         <td>${typeBadge(c.case_type)}</td>
-        <td><b>${safe(c.title)}</b><div style="margin-top:6px">${priorityBadge(c.priority)} ${urgentBadge(calc)}</div><div class="small muted">${safe((c.description||'').slice(0,70))}${(c.description||'').length>70?'…':''}</div></td>
+        <td><b>${safe(c.title)}</b><div style="margin-top:6px">${priorityBadge(c.priority)} ${reviewBadge(c)} ${urgentBadge(calc)}</div><div class="small muted">${safe((c.description||'').slice(0,70))}${(c.description||'').length>70?'…':''}</div></td>
         <td>${safe(locationName(c.location_id))}</td>
         <td>${safe(vendorName(c.vendor_id))}</td>
         <td>${statusBadge(c.status)}</td>
@@ -1176,7 +1220,7 @@
 
   function renderReminders(){
     if(!$('reminderList')) return;
-    let cases = visibleCases().map(c => ({ c, calc:calcCase(c) })).filter(x => x.calc.overdue || x.calc.soon || x.calc.noReply || x.calc.notReceived);
+    let cases = visibleMainCases().map(c => ({ c, calc:calcCase(c) })).filter(x => x.calc.overdue || x.calc.soon || x.calc.noReply || x.calc.notReceived);
     const f = state.reminderFilter;
     if(f === 'overdue') cases = cases.filter(x => x.calc.overdue);
     if(f === 'soon') cases = cases.filter(x => x.calc.soon);
@@ -1203,6 +1247,27 @@
     const items = [];
     const reads = readNotifications();
     const targetReplyRole = isVendor() ? '公司' : '廠商';
+    cases.forEach(c => {
+      if(isViewer() || isVendor() || !isPartCase(c)) return;
+      if(needsReview(c) && canReviewCase(c)){
+        const id = `review-request-${c.id}-${c.updated_at || c.created_at || ''}`;
+        items.push({
+          id, kind:'reviewRequest', title:'維修料品申請待審核', case:c, created_at:c.updated_at || c.created_at,
+          message:`${c.applicant_name || '申請人'} 建立了維修料品申請，請確認內容是否可送入正式總表。\n\n審核通過後會進入總表；若不通過，請填寫原因退回給申請人修正。`,
+          meta:`申請人：${c.applicant_name || '-'}｜負責人：${c.owner_name || '-'}｜地點：${locationName(c.location_id)}｜${dateTimeText(c.created_at)}`,
+          read:!!reads[id]
+        });
+      }
+      if(reviewRejected(c) && caseApplicantMatchesCurrentUser(c)){
+        const id = `review-rejected-${c.id}-${c.reviewed_at || c.updated_at || ''}`;
+        items.push({
+          id, kind:'reviewRejected', title:'維修料品申請審核退回', case:c, created_at:c.reviewed_at || c.updated_at || c.created_at,
+          message:`你的維修料品申請未通過審核，請依退回原因修正後重新送審。\n\n退回原因：${c.review_note || '未填寫原因'}`,
+          meta:`審核人：${c.reviewed_by || '-'}｜負責人：${c.owner_name || '-'}｜地點：${locationName(c.location_id)}｜${dateTimeText(c.reviewed_at || c.updated_at)}`,
+          read:!!reads[id]
+        });
+      }
+    });
     state.data.case_replies.forEach(r => {
       const c = caseMap.get(r.case_id);
       if(!c) return;
@@ -1283,18 +1348,21 @@
     const f = state.notificationFilter;
     if(f === 'unread') items = items.filter(n => !n.read);
     if(f === 'reply') items = items.filter(n => n.kind === 'reply');
+    if(f === 'review') items = items.filter(n => n.kind === 'reviewRequest' || n.kind === 'reviewRejected');
     if(f === 'urgent') items = items.filter(n => n.kind === 'urgent');
     if(f === 'restock') items = items.filter(n => n.kind === 'restock');
     if(f === 'vendorReminder') items = items.filter(n => n.kind === 'vendorReminder');
     const allItems = getNotificationItems();
     const unread = allItems.filter(n => !n.read).length;
     const replyUnread = allItems.filter(n => n.kind === 'reply' && !n.read).length;
+    const reviewUnread = allItems.filter(n => (n.kind === 'reviewRequest' || n.kind === 'reviewRejected') && !n.read).length;
     const urgentUnread = allItems.filter(n => n.kind === 'urgent' && !n.read).length;
     const vendorReminderUnread = allItems.filter(n => n.kind === 'vendorReminder' && !n.read).length;
     const restockUnread = allItems.filter(n => n.kind === 'restock' && !n.read).length;
     $('notificationSummary').innerHTML = [
       cardHtml('未讀通知', unread, '新回覆與急件催覆', unread ? 'warn' : 'good'),
       cardHtml('新回覆', replyUnread, isVendor() ? '公司回覆需要查看' : '廠商回覆需要查看', replyUnread ? 'warn' : 'good'),
+      cardHtml('審核通知', reviewUnread, '待審核或退回修正', reviewUnread ? 'warn' : 'good'),
       cardHtml('急件催覆', urgentUnread, '急件/重大需盡快回覆', urgentUnread ? 'bad' : 'good'),
       cardHtml('補料通知', restockUnread, '液晶面板補料對應', restockUnread ? 'warn' : 'good'),
       cardHtml('全部通知', allItems.length, '目前可查看通知', 'blue')
@@ -1304,10 +1372,10 @@
   }
 
   function notificationRow(n){
-    const badge = n.kind === 'urgent' ? '<span class="badge bad-b">急件催覆</span>' : n.kind === 'vendorReminder' ? '<span class="badge violet-b">廠商未回覆</span>' : n.kind === 'restock' ? '<span class="badge blue-b">補料通知</span>' : '<span class="badge warn-b">新回覆</span>';
+    const badge = n.kind === 'urgent' ? '<span class="badge bad-b">急件催覆</span>' : n.kind === 'vendorReminder' ? '<span class="badge violet-b">廠商未回覆</span>' : n.kind === 'restock' ? '<span class="badge blue-b">補料通知</span>' : n.kind === 'reviewRequest' ? '<span class="badge warn-b">待審核</span>' : n.kind === 'reviewRejected' ? '<span class="badge bad-b">審核退回</span>' : '<span class="badge warn-b">新回覆</span>';
     const read = n.read ? '<span class="badge good-b">已讀/已知悉</span>' : '<span class="badge bad-b">未讀</span>';
-    const targetTab = n.kind === 'restock' ? 'items' : 'replies';
-    const targetText = n.kind === 'restock' ? '查看補料對應' : '查看案件回覆';
+    const targetTab = n.kind === 'restock' ? 'items' : (n.kind === 'reviewRequest' || n.kind === 'reviewRejected') ? 'basic' : 'replies';
+    const targetText = n.kind === 'restock' ? '查看補料對應' : (n.kind === 'reviewRequest' || n.kind === 'reviewRejected') ? '查看審核資料' : '查看案件回覆';
     return `<div class="item-box notice-box ${n.read?'notice-read':'notice-unread'}">
       <div class="row" style="justify-content:space-between"><div><b>${safe(n.title)}</b> ${badge} ${priorityBadge(n.case.priority)}</div>${read}</div>
       <div style="margin:8px 0"><b>${safe(n.case.case_no)}</b>｜${safe(n.case.title)}</div>
@@ -1349,7 +1417,7 @@
   }
 
   function vendorPortalCases(){
-    let cases = visibleCases();
+    let cases = visibleMainCases();
     const vendor = $('vendorPortalVendor')?.value || '';
     const status = $('vendorPortalStatus')?.value || '';
     const need = $('vendorPortalNeed')?.value || '';
@@ -1414,8 +1482,12 @@
     const totalQty = state.data.case_items.filter(i => cases.some(c => c.id === i.case_id)).reduce((n,i)=>n+Number(i.qty||0),0);
     const overdue = cases.filter(c => calcCase(c).overdue);
     const pending = cases.filter(c => !CLOSED_STATUS.includes(c.status));
+    const pendingReview = cases.filter(needsReview);
+    const rejectedReview = cases.filter(reviewRejected);
     $('locationReviewStats').innerHTML = [
       cardHtml('料品申請', cases.length, '目前篩選案件', 'blue'),
+      cardHtml('待審核', pendingReview.length, '等待負責人確認', pendingReview.length?'warn':'good'),
+      cardHtml('審核退回', rejectedReview.length, '等待申請人修正', rejectedReview.length?'bad':'good'),
       cardHtml('未結案', pending.length, '待處理申請', 'blue'),
       cardHtml('申請數量', totalQty, '品項需求總數', 'good'),
       cardHtml('逾期', overdue.length, '需追蹤', overdue.length?'bad':'good')
@@ -1424,8 +1496,8 @@
     $('locationReviewList').innerHTML = Object.entries(groups).map(([locationId, list]) => {
       const items = state.data.case_items.filter(i => list.some(c => c.id === i.case_id));
       return `<div class="item-box"><div class="row" style="justify-content:space-between"><h3 style="margin:0">${safe(locationName(locationId))}</h3><span class="badge blue-b">${list.length} 件 / ${items.length} 筆品項</span></div>
-        <div class="table-wrap"><table><thead><tr><th>案件</th><th>申請人</th><th>廠商</th><th>狀態</th><th>品項摘要</th><th>預計完成</th><th>操作</th></tr></thead><tbody>
-        ${list.map(c => { const its = state.data.case_items.filter(i => i.case_id === c.id); return `<tr><td><b>${safe(c.case_no)}</b><div>${safe(c.title)}</div></td><td>${safe(c.applicant_name||'-')}</td><td>${safe(vendorName(c.vendor_id))}</td><td>${statusBadge(c.status)}</td><td>${safe(its.map(i=>`${i.item_name||'-'} x ${i.qty||0}`).join('、') || '-')}</td><td>${dateText(c.due_date)}</td><td><button class="btn ghost small-btn" onclick="window.VCS.openCase('${c.id}')">查看</button></td></tr>`; }).join('')}
+        <div class="table-wrap"><table><thead><tr><th>案件</th><th>申請人</th><th>負責人</th><th>審核</th><th>廠商</th><th>狀態</th><th>品項摘要</th><th>預計完成</th><th>操作</th></tr></thead><tbody>
+        ${list.map(c => { const its = state.data.case_items.filter(i => i.case_id === c.id); return `<tr><td><b>${safe(c.case_no)}</b><div>${safe(c.title)}</div></td><td>${safe(c.applicant_name||'-')}</td><td>${safe(c.owner_name||'-')}</td><td>${reviewBadge(c)}${c.review_note?`<div class="small muted">${safe(c.review_note.slice(0,40))}${c.review_note.length>40?'…':''}</div>`:''}</td><td>${safe(vendorName(c.vendor_id))}</td><td>${statusBadge(c.status)}</td><td>${safe(its.map(i=>`${i.item_name||'-'} x ${i.qty||0}`).join('、') || '-')}</td><td>${dateText(c.due_date)}</td><td><button class="btn ghost small-btn" onclick="window.VCS.openCase('${c.id}')">查看</button></td></tr>`; }).join('')}
         </tbody></table></div></div>`;
     }).join('') || '<div class="empty">目前沒有符合條件的料品申請</div>';
   }
@@ -1435,7 +1507,7 @@
     const kw = ($('containerKeyword')?.value || '').trim().toLowerCase();
     const vendor = $('containerVendor')?.value || '';
     const status = $('containerStatus')?.value || '';
-    let cases = visibleCases().filter(c => c.case_type === '貨櫃送修');
+    let cases = visibleMainCases().filter(c => c.case_type === '貨櫃送修');
     if(vendor) cases = cases.filter(c => c.vendor_id === vendor);
     if(status) cases = cases.filter(c => c.status === status);
     if(kw) cases = cases.filter(c => [c.case_no,c.tracking_no,c.title,c.description].join(' ').toLowerCase().includes(kw));
@@ -1453,7 +1525,7 @@
   }
 
   function followupCases(){
-    let arr = visibleCases().map(c => ({c, calc:calcCase(c)})).filter(x => x.calc.urgentNeedReply || x.calc.overdue || x.calc.noReply || x.c.status === '待廠商回覆');
+    let arr = visibleMainCases().map(c => ({c, calc:calcCase(c)})).filter(x => x.calc.urgentNeedReply || x.calc.overdue || x.calc.noReply || x.c.status === '待廠商回覆');
     const f = state.followupFilter;
     if(f === 'urgent') arr = arr.filter(x => x.calc.urgentNeedReply || x.c.priority === '急件' || x.c.priority === '重大');
     if(f === 'overdue') arr = arr.filter(x => x.calc.overdue);
@@ -1495,7 +1567,7 @@
 
   function renderReports(){
     if(!$('reportSummary')) return;
-    const cases = visibleCases();
+    const cases = visibleMainCases();
     const open = cases.filter(c => !CLOSED_STATUS.includes(c.status));
     const overdue = cases.filter(c => calcCase(c).overdue);
     const urgent = cases.filter(c => calcCase(c).urgentNeedReply);
@@ -1693,7 +1765,7 @@
     state.selectedCase = c;
     if(tab === 'replies') markCaseRepliesRead(id);
     $('modalTitle').textContent = `${c.case_no}｜${c.title}`;
-    $('modalSub').innerHTML = `${typeBadge(c.case_type)} ${statusBadge(c.status)} ${priorityBadge(c.priority)} <span class="muted">廠商：${safe(vendorName(c.vendor_id))}｜送修地點：${safe(locationName(c.location_id))}｜回寄地點：${safe(returnLocationName(c))}</span>`;
+    $('modalSub').innerHTML = `${typeBadge(c.case_type)} ${statusBadge(c.status)} ${priorityBadge(c.priority)} ${reviewBadge(c)} <span class="muted">廠商：${safe(vendorName(c.vendor_id))}｜送修地點：${safe(locationName(c.location_id))}｜回寄地點：${safe(returnLocationName(c))}</span>`;
     $('caseModal').classList.remove('hidden');
     renderCaseModal(tab);
   }
@@ -1739,6 +1811,7 @@
       <div class="grid-3">
         <div class="field"><label>內部負責人</label><input id="mOwnerName" value="${safe(c.owner_name||'')}" ${editCore?'':'disabled'}></div>
       </div>
+      ${reviewPanelHtml(c)}
       <div class="field"><label>問題描述 / 需求說明</label><textarea id="mDescription" ${editCore?'':'disabled'}>${safe(c.description||'')}</textarea></div>
       <div class="row">
         ${editAny?'<button class="btn" id="saveCaseBtn">儲存修改</button>':''}
@@ -1746,6 +1819,25 @@
         ${canDeleteCase(c)?'<button class="btn danger-bg" id="deleteCaseBtn">刪除案件</button>':''}
       </div>
       <div class="hint" style="margin-top:14px">${caseHealthText(c)}</div>
+    </div>`;
+  }
+  function reviewPanelHtml(c){
+    if(!isPartCase(c)) return '';
+    const status = reviewStatus(c);
+    const statusText = status === REVIEW_STATUS.pending ? '待負責人審核' : status === REVIEW_STATUS.rejected ? '審核退回' : '審核通過';
+    const note = c.review_note || '';
+    const reviewer = c.reviewed_by ? `審核人：${safe(c.reviewed_by)}｜時間：${dateTimeText(c.reviewed_at)}` : '尚未審核';
+    const rejectBox = canReviewCase(c) ? `
+      <div class="field"><label>退回原因</label><textarea id="reviewRejectNote" placeholder="請填寫需要申請人修正的原因"></textarea></div>
+      <div class="row"><button class="btn good-bg" id="approveReviewBtn">審核通過，進入總表</button><button class="btn danger-bg" id="rejectReviewBtn">審核不通過，退回修正</button></div>` : '';
+    const resubmitBox = canResubmitReview(c) ? `
+      <div class="row"><button class="btn" id="resubmitReviewBtn">已修正，重新送審</button></div>` : '';
+    return `<div class="item-box">
+      <div class="row" style="justify-content:space-between"><b>維修料品審核</b>${reviewBadge(c)}</div>
+      <div class="grid-3 small muted" style="margin-top:10px"><div>審核狀態：${safe(statusText)}</div><div>指定負責人：${safe(c.owner_name || '-')}</div><div>${reviewer}</div></div>
+      ${note ? `<div class="hint" style="margin-top:10px">退回/審核說明：${safe(note)}</div>` : ''}
+      ${rejectBox}
+      ${resubmitBox}
     </div>`;
   }
 
@@ -1848,6 +1940,9 @@
       $('saveCaseBtn')?.addEventListener('click', () => saveCaseBasic(c));
       $('closeCaseBtn')?.addEventListener('click', () => closeCase(c));
       $('deleteCaseBtn')?.addEventListener('click', () => deleteCase(c));
+      $('approveReviewBtn')?.addEventListener('click', () => approvePartReview(c));
+      $('rejectReviewBtn')?.addEventListener('click', () => rejectPartReview(c));
+      $('resubmitReviewBtn')?.addEventListener('click', () => resubmitPartReview(c));
     }
     if(tab === 'items' && canEditCase(c)){
       $('saveLcdRestockBtn')?.addEventListener('click', () => saveLcdRestock(c));
@@ -1900,6 +1995,64 @@
     await dbUpdate('cases', c.id, { status:'結案', closed_at:nowIso(), updated_at:nowIso(), updated_by:state.user?.id || null });
     await addLog(c, '結案', '案件已結案');
     await refreshAll(); closeModal(); toast('案件已結案');
+  }
+  async function approvePartReview(c){
+    if(!canReviewCase(c)) return toast('只有指定負責人或管理者可以審核', 'bad');
+    const patch = {
+      review_status:REVIEW_STATUS.approved,
+      review_note:'',
+      reviewed_by:currentName(),
+      reviewed_at:nowIso(),
+      status:'待整理',
+      updated_by:state.user?.id || null,
+      updated_at:nowIso()
+    };
+    const updated = await dbUpdate('cases', c.id, patch);
+    await addLog(updated || c, '維修料品審核通過', `負責人 ${currentName()} 核准，案件進入總表`);
+    await refreshAll();
+    state.selectedCase = state.data.cases.find(x => x.id === c.id);
+    renderCaseModal('basic');
+    updateNotificationUi();
+    toast('審核通過，已進入總表');
+  }
+  async function rejectPartReview(c){
+    if(!canReviewCase(c)) return toast('只有指定負責人或管理者可以審核', 'bad');
+    const note = $('reviewRejectNote')?.value.trim() || '';
+    if(!note) return toast('請填寫審核不通過原因', 'bad');
+    const patch = {
+      review_status:REVIEW_STATUS.rejected,
+      review_note:note,
+      reviewed_by:currentName(),
+      reviewed_at:nowIso(),
+      status:'審核退回',
+      updated_by:state.user?.id || null,
+      updated_at:nowIso()
+    };
+    const updated = await dbUpdate('cases', c.id, patch);
+    await addLog(updated || c, '維修料品審核退回', `退回給 ${c.applicant_name || '申請人'}：${note}`);
+    await refreshAll();
+    state.selectedCase = state.data.cases.find(x => x.id === c.id);
+    renderCaseModal('basic');
+    updateNotificationUi();
+    toast('已退回申請人修正');
+  }
+  async function resubmitPartReview(c){
+    if(!canResubmitReview(c)) return toast('只有申請人、負責人或管理者可以重新送審', 'bad');
+    const patch = {
+      review_status:REVIEW_STATUS.pending,
+      status:'待負責人審核',
+      reviewed_by:null,
+      reviewed_at:null,
+      updated_by:state.user?.id || null,
+      updated_at:nowIso()
+    };
+    const updated = await dbUpdate('cases', c.id, patch);
+    await addLog(updated || c, '維修料品重新送審', `${currentName()} 已修正並重新送審`);
+    await refreshAll();
+    state.selectedCase = state.data.cases.find(x => x.id === c.id);
+    renderCaseModal('basic');
+    updateNotificationUi();
+    toast('已重新送審，負責人會看到通知');
   }
   async function deleteCase(c){
     if(!canDeleteCase(c)) return toast('只有案件建立者或管理者可以刪除案件', 'bad');
@@ -2021,7 +2174,14 @@
     const cls = label==='程式BUG回報'?'bad-b':label==='維修料品申請'?'good-b':label==='貨櫃送修'?'violet-b':'blue-b';
     return `<span class="badge ${cls}">${safe(label||'-')}</span>`;
   }
-  function statusBadge(s){ const cls = CLOSED_STATUS.includes(s)?'good-b':s==='待廠商回覆'?'warn-b':s==='取消'?'bad-b':s==='已完成'?'good-b':'blue-b'; return `<span class="badge ${cls}">${safe(s||'-')}</span>`; }
+  function statusBadge(s){ const cls = CLOSED_STATUS.includes(s)?'good-b':s==='待廠商回覆'||s==='待負責人審核'?'warn-b':s==='審核退回'||s==='取消'?'bad-b':s==='已完成'?'good-b':'blue-b'; return `<span class="badge ${cls}">${safe(s||'-')}</span>`; }
+  function reviewBadge(c){
+    if(!isPartCase(c)) return '';
+    const status = reviewStatus(c);
+    if(status === REVIEW_STATUS.pending) return '<span class="badge warn-b">待審核</span>';
+    if(status === REVIEW_STATUS.rejected) return '<span class="badge bad-b">審核退回</span>';
+    return '<span class="badge good-b">審核通過</span>';
+  }
   function reminderBadge(calc){
     if(calc.overdue) return `<span class="badge bad-b">逾期 ${calc.overdueDays} 天</span>`;
     if(calc.soon) return `<span class="badge warn-b">${calc.daysToDue===0?'今天到期':calc.daysToDue+' 天後到期'}</span>`;
@@ -2048,7 +2208,7 @@
 
 
   function csvEscape(v){ return `"${String(v??'').replaceAll('"','""')}"`; }
-  function buildCaseRows(cases=visibleCases()){
+  function buildCaseRows(cases=visibleMainCases()){
     const header = ['案件編號','案件類型','案件標題','優先度','狀態','逾期狀態','逾期天數','廠商回覆狀態','廠商未回覆天數','上次自動提醒','地點','回寄地點','廠商','申請人','負責人','追蹤單號','回寄單號','送出日期','廠商收件日','預計完成日','提醒天數','最後回覆','問題描述'];
     const rows = cases.map(c => { const calc = calcCase(c); return [c.case_no,normalizeCaseType(c.case_type),c.title,c.priority,c.status,c.overdue_status || (calc.overdue?'已逾期':calc.soon?'快逾期':'正常'),calc.overdueDays,c.vendor_reply_status || (calc.noReply?'廠商未回覆':'正常'),calc.noReplyDays,c.last_vendor_reminder_date,locationName(c.location_id),returnLocationName(c),vendorName(c.vendor_id),c.applicant_name,c.owner_name,c.tracking_no,c.return_tracking_no,c.ship_date,c.vendor_received_date,c.due_date,c.reminder_days,c.last_reply_at,c.description]; });
     return [header, ...rows];
@@ -2060,7 +2220,7 @@
   }
 
   function exportCasesExcel(){
-    const cases = visibleCases();
+    const cases = visibleMainCases();
     const caseRows = buildCaseRows(cases);
     const itemRows = [['案件編號','品項','規格/設備資訊','SN','數量','已完成','未完成','問題描述','補料批次','貨櫃號碼','補料日期','廠商判斷']];
     state.data.case_items.filter(i => cases.some(c => c.id === i.case_id)).forEach(i => { const c = state.data.cases.find(x=>x.id===i.case_id); const r = parseRestockInfo(i.vendor_result); itemRows.push([c?.case_no || '', i.item_name, i.spec, i.sn, i.qty, i.completed_qty, i.pending_qty, i.problem_desc, r.batch || '', r.container || '', r.date || '', r.note || i.vendor_result]); });
@@ -2069,7 +2229,7 @@
   }
 
   function exportReportsExcel(){
-    const cases = visibleCases();
+    const cases = visibleMainCases();
     const sheets = [
       {name:'廠商統計', rows:statRows(groupStats(cases, c => vendorName(c.vendor_id)), '廠商')},
       {name:'類型統計', rows:statRows(groupStats(cases, c => normalizeCaseType(c.case_type) || '未分類'), '類型')},
@@ -2121,7 +2281,8 @@
       const loc = mapByName(state.data.locations, 'location_name', get('地點'));
       const returnLoc = mapByName(state.data.locations, 'location_name', get('回寄地點'));
       const dueDate = get('預計完成日') || addDaysInput(new Date(), type.defaultDays);
-      const row = { id:uid(), case_no:await nextCaseNo(type.prefix), case_type:type.value, title:get('案件標題') || 'CSV 匯入案件', status:'待整理', priority:get('優先度') || '一般', location_id:loc?.id || null, return_location_id:returnLoc?.id || null, vendor_id:vendor?.id || null, applicant_name:get('申請人') || currentName(), owner_name:get('負責人') || currentName(), tracking_no:get('單號'), return_tracking_no:'', ship_date:null, vendor_received_date:null, due_date:dueDate, reminder_days:type.defaultDays, description:get('問題描述'), last_reply_at:null, closed_at:null, created_by:state.user?.id||null, updated_by:state.user?.id||null, created_at:nowIso(), updated_at:nowIso() };
+      const partReviewRequired = isPartCase(type.value);
+      const row = { id:uid(), case_no:await nextCaseNo(type.prefix), case_type:type.value, title:get('案件標題') || 'CSV 匯入案件', status:partReviewRequired?'待負責人審核':'待整理', priority:get('優先度') || '一般', location_id:loc?.id || null, return_location_id:returnLoc?.id || null, vendor_id:vendor?.id || null, applicant_name:get('申請人') || currentName(), owner_name:get('負責人') || currentName(), tracking_no:get('單號'), return_tracking_no:'', ship_date:null, vendor_received_date:null, due_date:dueDate, reminder_days:type.defaultDays, description:get('問題描述'), review_status:partReviewRequired?REVIEW_STATUS.pending:REVIEW_STATUS.approved, review_note:'', reviewed_by:null, reviewed_at:null, last_reply_at:null, closed_at:null, created_by:state.user?.id||null, updated_by:state.user?.id||null, created_at:nowIso(), updated_at:nowIso() };
       const c = await dbInsert('cases', row);
       if(get('品項') || get('問題描述')) await dbInsert('case_items', { id:uid(), case_id:c.id, item_name:get('品項'), spec:get('規格'), sn:get('SN'), qty:Number(get('數量')||1), problem_desc:get('問題描述'), vendor_result:'', completed_qty:0, pending_qty:Number(get('數量')||1), created_at:nowIso() });
       await addLog(c, 'CSV 匯入案件', c.title);
@@ -2133,7 +2294,7 @@
 
   function exportCsv(){
     const rows = [['案件編號','類型','標題','狀態','逾期狀態','逾期天數','廠商回覆狀態','未回覆天數','上次自動提醒','地點','回寄地點','廠商','單號','回寄單號','預計完成','最後回覆','負責人']];
-    visibleCases().forEach(c => { const calc = calcCase(c); rows.push([c.case_no,normalizeCaseType(c.case_type),c.title,c.status,c.overdue_status || (calc.overdue?'已逾期':calc.soon?'快逾期':'正常'),calc.overdueDays,c.vendor_reply_status || (calc.noReply?'廠商未回覆':'正常'),calc.noReplyDays,c.last_vendor_reminder_date,locationName(c.location_id),returnLocationName(c),vendorName(c.vendor_id),c.tracking_no,c.return_tracking_no,c.due_date,c.last_reply_at,c.owner_name]); });
+    visibleMainCases().forEach(c => { const calc = calcCase(c); rows.push([c.case_no,normalizeCaseType(c.case_type),c.title,c.status,c.overdue_status || (calc.overdue?'已逾期':calc.soon?'快逾期':'正常'),calc.overdueDays,c.vendor_reply_status || (calc.noReply?'廠商未回覆':'正常'),calc.noReplyDays,c.last_vendor_reminder_date,locationName(c.location_id),returnLocationName(c),vendorName(c.vendor_id),c.tracking_no,c.return_tracking_no,c.due_date,c.last_reply_at,c.owner_name]); });
     const csv = '\ufeff' + rows.map(r => r.map(v => `"${String(v??'').replaceAll('"','""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `廠商協作案件_${toDateInput(new Date())}.csv`; a.click(); URL.revokeObjectURL(a.href);

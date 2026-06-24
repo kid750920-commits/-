@@ -242,19 +242,20 @@
 
       <section id="notifications" class="section">
         <div class="panel">
-          <div class="panel-title"><div><h2>回覆通知 / 急件催覆</h2><p>只顯示目前登入帳號自己的通知；回覆身分依登入帳戶自動帶入，其他操作員的通知不會跳出，也不會被你標記已讀。急件與重大案件超過回覆門檻會顯示催覆。</p></div><button class="btn ghost small-btn" id="markAllNotificationsBtn">全部標記已讀/知悉</button></div>
+          <div class="panel-title"><div><h2>回覆通知 / 審核 / 急件催覆</h2><p>只顯示目前登入帳號自己的通知；維修料品申請會先通知指定負責人審核，退回原因會通知申請人修正。</p></div><button class="btn ghost small-btn" id="markAllNotificationsBtn">全部標記已讀/知悉</button></div>
           <div class="cards" id="notificationSummary"></div>
           <div class="tabs" id="notificationTabs">
             <button class="tab active" data-notification="all">全部通知</button>
             <button class="tab" data-notification="unread">未讀</button>
             <button class="tab" data-notification="reply">新回覆</button>
+            <button class="tab" data-notification="review">審核通知</button>
             <button class="tab" data-notification="urgent">急件催覆</button>
             <button class="tab" data-notification="restock">補料通知</button>
             <button class="tab" data-notification="vendorReminder">廠商未回覆</button>
           </div>
           <details class="help-panel">
             <summary>通知與催覆規則</summary>
-            <div class="hint">急件門檻：重大案件 1 天沒有有效回覆就提醒；急件案件 2 天沒有有效回覆就提醒。廠商超過提醒天數未回覆 / 未更新，系統每日開啟或重新整理時會自動產生提醒。通知已讀狀態依登入帳號分開記錄，回覆訊息會記錄登入操作員，B 操作員查看案件也不會消除 A 的未讀通知。</div>
+            <div class="hint">維修料品申請：申請人建立後先通知指定負責人審核，核准後才進入正式總表；退回時會通知申請人原因並可修正後重新送審。急件門檻：重大案件 1 天沒有有效回覆就提醒；急件案件 2 天沒有有效回覆就提醒。通知已讀狀態依登入帳號分開記錄。</div>
           </details>
           <div id="notificationList"></div>
         </div>

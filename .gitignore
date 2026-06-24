@@ -13,3 +13,5 @@ index.backup-*.html
 # OS/editor noise
 Thumbs.db
 .DS_Store
+
+.vercel
