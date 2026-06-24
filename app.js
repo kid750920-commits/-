@@ -125,13 +125,22 @@
     const identities = currentIdentitySet();
     return [c?.applicant_name].some(v => identities.has(identityText(v)));
   }
+  function partReviewerMatchesCurrentUser(){
+    const reviewer = partOwnerProfile();
+    if(!reviewer) return false;
+    const userId = currentUserId();
+    if(userId && reviewer.id === userId) return true;
+    const identities = currentIdentitySet();
+    return [reviewer.display_name, reviewer.username, reviewer.email, accountFromAuthEmail(reviewer.email)]
+      .some(v => identities.has(identityText(v)));
+  }
   function canReviewCase(c){
     if(!needsReview(c) || isViewer() || isVendor()) return false;
-    return isAdmin() || caseOwnerMatchesCurrentUser(c);
+    return isAdmin() || partReviewerMatchesCurrentUser();
   }
   function canResubmitReview(c){
     if(!reviewRejected(c) || isViewer() || isVendor()) return false;
-    return isAdmin() || caseApplicantMatchesCurrentUser(c) || caseOwnerMatchesCurrentUser(c);
+    return isAdmin() || caseApplicantMatchesCurrentUser(c) || partReviewerMatchesCurrentUser();
   }
   function normalizedTitle(v){
     return String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -911,6 +920,8 @@
       const case_type = $('caseType').value;
       const type = CASE_TYPES.find(t => t.value === case_type) || CASE_TYPES[0];
       const partReviewRequired = isPartCase(case_type);
+      const fixedPartOwner = partOwnerName();
+      if(partReviewRequired && !fixedPartOwner) return toast('請先到「帳號 / 廠商權限管理」設定維修料品負責人，再建立維修料品申請', 'bad');
       const reminderDays = Number($('reminderDays').value || type.defaultDays);
       const shipDate = $('shipDate').value;
       const due = $('dueDate').value || addDaysInput(shipDate ? new Date(shipDate) : new Date(), reminderDays);
@@ -924,7 +935,7 @@
         location_id: $('locationId').value || null,
         vendor_id: $('vendorId').value || null,
         applicant_name: $('applicantName').value.trim() || currentName(),
-        owner_name: partReviewRequired && partOwnerName() ? partOwnerName() : ($('ownerName').value.trim() || currentName()),
+        owner_name: partReviewRequired ? fixedPartOwner : ($('ownerName').value.trim() || currentName()),
         tracking_no: $('trackingNo').value.trim(),
         return_tracking_no: $('returnTrackingNo').value.trim(),
         return_location_id: $('returnLocationId').value || null,
@@ -2563,7 +2574,9 @@
       const returnLoc = mapByName(state.data.locations, 'location_name', get('回寄地點'));
       const dueDate = get('預計完成日') || addDaysInput(new Date(), type.defaultDays);
       const partReviewRequired = isPartCase(type.value);
-      const row = { id:uid(), case_no:await nextCaseNo(type.prefix), case_type:type.value, title:get('案件標題') || 'CSV 匯入案件', status:partReviewRequired?'待負責人審核':'待整理', priority:get('優先度') || '一般', location_id:loc?.id || null, return_location_id:returnLoc?.id || null, vendor_id:vendor?.id || null, applicant_name:get('申請人') || currentName(), owner_name:get('負責人') || currentName(), tracking_no:get('單號'), return_tracking_no:'', ship_date:null, vendor_received_date:null, due_date:dueDate, reminder_days:type.defaultDays, description:get('問題描述'), review_status:partReviewRequired?REVIEW_STATUS.pending:REVIEW_STATUS.approved, review_note:'', reviewed_by:null, reviewed_at:null, last_reply_at:null, closed_at:null, created_by:state.user?.id||null, updated_by:state.user?.id||null, created_at:nowIso(), updated_at:nowIso() };
+      const fixedPartOwner = partOwnerName();
+      if(partReviewRequired && !fixedPartOwner) return toast('請先設定維修料品負責人，再匯入維修料品申請', 'bad');
+      const row = { id:uid(), case_no:await nextCaseNo(type.prefix), case_type:type.value, title:get('案件標題') || 'CSV 匯入案件', status:partReviewRequired?'待負責人審核':'待整理', priority:get('優先度') || '一般', location_id:loc?.id || null, return_location_id:returnLoc?.id || null, vendor_id:vendor?.id || null, applicant_name:get('申請人') || currentName(), owner_name:partReviewRequired ? fixedPartOwner : (get('負責人') || currentName()), tracking_no:get('單號'), return_tracking_no:'', ship_date:null, vendor_received_date:null, due_date:dueDate, reminder_days:type.defaultDays, description:get('問題描述'), review_status:partReviewRequired?REVIEW_STATUS.pending:REVIEW_STATUS.approved, review_note:'', reviewed_by:null, reviewed_at:null, last_reply_at:null, closed_at:null, created_by:state.user?.id||null, updated_by:state.user?.id||null, created_at:nowIso(), updated_at:nowIso() };
       const c = await dbInsert('cases', row);
       if(get('品項') || get('問題描述')) await dbInsert('case_items', { id:uid(), case_id:c.id, item_name:get('品項'), spec:get('規格'), sn:get('SN'), qty:Number(get('數量')||1), problem_desc:get('問題描述'), vendor_result:'', completed_qty:0, pending_qty:Number(get('數量')||1), created_at:nowIso() });
       await addLog(c, 'CSV 匯入案件', c.title);
