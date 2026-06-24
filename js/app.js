@@ -1,6 +1,10 @@
 import { getRuntimeConfig } from './modules/runtime-config.js';
 import { APP_KEYS, CLOUD_TABLES, INTERNAL_AUTH_DOMAIN, PAGE_SIZES } from './modules/app-constants.js';
-import { DATE_FMT, DATE_TIME_FMT } from './modules/date-formatters.js';
+import { createInitialState, emptyData } from './modules/state.js';
+import { $, qsa } from './modules/dom.js';
+import { addDaysInput, compactDate, dateText, dateTimeText, daysBetween, nowIso, toDateInput, toLocalDateInput, todayStart } from './modules/date-utils.js';
+import { safe } from './modules/html.js';
+import { byId } from './modules/data-utils.js';
 
 (() => {
   'use strict';
@@ -31,30 +35,7 @@ import { DATE_FMT, DATE_TIME_FMT } from './modules/date-formatters.js';
   const PART_CASE_TYPE = '維修料品申請';
   const REVIEW_STATUS = { pending:'pending', approved:'approved', rejected:'rejected' };
 
-  const state = {
-    client: null,
-    online: false,
-    user: null,
-    profile: null,
-    section: 'dashboard',
-    data: emptyData(),
-    selectedCase: null,
-    reminderFilter: 'all',
-    notificationFilter: 'all',
-    followupFilter: 'all',
-    caseListLimit: CASE_LIST_PAGE_SIZE,
-    modalTab: 'basic',
-    caseDetailLoaded: { case_attachments:new Set(), case_logs:new Set() },
-    caseDetailLoading: {},
-    automationFieldsAvailable: true,
-    draftRestored: false,
-    realtimeChannel: null,
-    realtimeRefreshTimer: null
-  };
-
-  function emptyData(){
-    return { vendors:[], locations:[], profiles:[], cases:[], case_items:[], case_replies:[], case_attachments:[], case_logs:[] };
-  }
+  const state = createInitialState(CASE_LIST_PAGE_SIZE);
 
   function seedData(){
     const now = new Date();
@@ -85,20 +66,7 @@ import { DATE_FMT, DATE_TIME_FMT } from './modules/date-formatters.js';
     };
   }
 
-  function $(id){ return document.getElementById(id); }
-  function qsa(sel, root=document){ return [...root.querySelectorAll(sel)]; }
-  function nowIso(){ return new Date().toISOString(); }
   function uid(){ return (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2) + Date.now()); }
-  function compactDate(d){ return d.toISOString().slice(0,10).replaceAll('-',''); }
-  function toDateInput(d){ return d.toISOString().slice(0,10); }
-  function toLocalDateInput(d=new Date()){ const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0,10); }
-  function addDaysInput(d, days){ const x = new Date(d); x.setDate(x.getDate()+days); return toDateInput(x); }
-  function safe(v){ return String(v ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch])); }
-  function dateText(v){ if(!v) return '-'; const d = new Date(v); return Number.isNaN(d.getTime()) ? '-' : DATE_FMT.format(d); }
-  function dateTimeText(v){ if(!v) return '-'; const d = new Date(v); return Number.isNaN(d.getTime()) ? '-' : DATE_TIME_FMT.format(d); }
-  function todayStart(){ const d = new Date(); d.setHours(0,0,0,0); return d; }
-  function daysBetween(from, to){ const a = new Date(from); a.setHours(0,0,0,0); const b = new Date(to); b.setHours(0,0,0,0); return Math.ceil((b-a)/86400000); }
-  function byId(list, id){ return list.find(x => x.id === id); }
   function normalizeCaseType(type){
     return type === '電視大屏申請' ? LCD_CASE_TYPE : type;
   }
