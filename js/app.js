@@ -598,55 +598,10 @@ import { createDbApi } from './modules/db.js';
     }catch(err){ console.error(err); toast(err.message || '資料載入失敗', 'bad'); }
   }
 
-  function saveLocal(db=state.data){
-    return dbApi.saveLocal(db);
-    try{
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-    }catch(err){
-      if(!isQuotaError(err)) throw err;
-      try{
-        const compacted = compactLocalDbForStorage(db, false);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(compacted));
-        state.data = compacted;
-        if($('toastWrap')) toast('本機儲存空間不足，已自動壓縮大型附件縮圖。', 'warn');
-      }catch(secondErr){
-        if(!isQuotaError(secondErr)) throw secondErr;
-        const compacted = compactLocalDbForStorage(db, true);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(compacted));
-        state.data = compacted;
-        if($('toastWrap')) toast('本機儲存空間仍不足，已保留附件紀錄並改用輕量預覽圖。', 'warn');
-      }
-    }
-  }
-
-  async function dbInsert(table, row){
-    return dbApi.dbInsert(table, row);
-    if(state.online){
-      const { data, error } = await state.client.from(table).insert(row).select('*').single();
-      if(error) throw error; return data;
-    }
-    const newRow = { ...row, id: row.id || uid(), created_at: row.created_at || nowIso() };
-    state.data[table].unshift(newRow); saveLocal(); return newRow;
-  }
-  async function dbUpdate(table, id, patch){
-    return dbApi.dbUpdate(table, id, patch);
-    if(state.online){
-      const { data, error } = await state.client.from(table).update(patch).eq('id', id).select('*').single();
-      if(error) throw error; return data;
-    }
-    const list = state.data[table];
-    const idx = list.findIndex(x => x.id === id);
-    if(idx >= 0) list[idx] = { ...list[idx], ...patch };
-    saveLocal(); return list[idx];
-  }
-  async function dbDelete(table, id){
-    return dbApi.dbDelete(table, id);
-    if(state.online){
-      const { error } = await state.client.from(table).delete().eq('id', id);
-      if(error) throw error; return true;
-    }
-    state.data[table] = state.data[table].filter(x => x.id !== id); saveLocal(); return true;
-  }
+  function saveLocal(db=state.data){ return dbApi.saveLocal(db); }
+  async function dbInsert(table, row){ return dbApi.dbInsert(table, row); }
+  async function dbUpdate(table, id, patch){ return dbApi.dbUpdate(table, id, patch); }
+  async function dbDelete(table, id){ return dbApi.dbDelete(table, id); }
 
   function hydrateSelectOptions(){
     const typeOptions = CASE_TYPES.map(t => `<option value="${safe(t.value)}">${safe(t.value)}</option>`).join('');
