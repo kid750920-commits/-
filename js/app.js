@@ -1216,7 +1216,7 @@ import { createNotificationStore } from './modules/notifications.js';
           id, kind:'reviewPending', title:'維修料品申請等待審核', case:c, created_at:c.updated_at || c.created_at,
           message:'你的維修料品申請已送出，正在等待維修料品負責人或管理者審核。審核通過後才會進入總表。',
           meta:`審核負責人：${c.owner_name || partOwnerName() || '-'}｜地點：${locationName(c.location_id)}｜${dateTimeText(c.created_at)}`,
-          read:true
+          read:reviewNoticeAcknowledged(c)
         });
       }
       if(reviewRejected(c) && caseApplicantMatchesCurrentUser(c)){
@@ -1376,6 +1376,18 @@ import { createNotificationStore } from './modules/notifications.js';
     return !caseCreatedByCurrentUser(n?.case);
   }
 
+  function reviewNoticeAcknowledged(c){
+    return state.data.case_logs.some(l => l.case_id === c?.id && l.action === '審核通知已讀');
+  }
+
+  async function acknowledgeNotification(n){
+    if(!n || !canAcknowledgeNotification(n)) return;
+    markNoticeRead(n.id);
+    if(n.kind === 'reviewRequest' && !reviewNoticeAcknowledged(n.case)){
+      await addLog(n.case, '審核通知已讀', `${currentName()} 已讀待審核通知`);
+    }
+  }
+
   function markCaseRepliesRead(caseId){
     const items = getNotificationItems().filter(n => n.kind === 'reply' && n.case.id === caseId && canAcknowledgeNotification(n));
     if(!items.length) return;
@@ -1385,9 +1397,15 @@ import { createNotificationStore } from './modules/notifications.js';
     updateNotificationUi();
   }
 
-  function markAllNotificationsRead(){
+  async function markAllNotificationsRead(){
     const map = readNotifications();
-    getNotificationItems().filter(canAcknowledgeNotification).forEach(n => { map[n.id] = nowIso(); });
+    const items = getNotificationItems().filter(canAcknowledgeNotification);
+    for(const n of items){
+      map[n.id] = nowIso();
+      if(n.kind === 'reviewRequest' && !reviewNoticeAcknowledged(n.case)){
+        await addLog(n.case, '審核通知已讀', `${currentName()} 已讀待審核通知`);
+      }
+    }
     saveNotifications(map);
     renderNotifications();
     toast('通知已全部標記已讀/知悉');
@@ -2450,9 +2468,10 @@ import { createNotificationStore } from './modules/notifications.js';
 
   window.VCS = {
     openCase,
-    openNotification:(noticeId, caseId, tab='basic') => {
+    openNotification:async (noticeId, caseId, tab='basic') => {
       const notice = getNotificationItems().find(n => n.id === noticeId);
-      if(!notice || canAcknowledgeNotification(notice)) markNoticeRead(noticeId);
+      if(!notice) markNoticeRead(noticeId);
+      else await acknowledgeNotification(notice);
       renderNotifications();
       updateNotificationUi();
       openCase(caseId, tab);
@@ -2466,9 +2485,10 @@ import { createNotificationStore } from './modules/notifications.js';
     toggleProfileActive,
     copyFollowup,
     markVendorFollowed,
-    markNotificationRead:(id)=>{
+    markNotificationRead:async (id)=>{
       const notice = getNotificationItems().find(n => n.id === id);
-      if(!notice || canAcknowledgeNotification(notice)) markNoticeRead(id);
+      if(!notice) markNoticeRead(id);
+      else await acknowledgeNotification(notice);
       renderNotifications();
       updateNotificationUi();
     },
