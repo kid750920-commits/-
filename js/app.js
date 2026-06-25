@@ -1207,7 +1207,7 @@ import { createNotificationStore } from './modules/notifications.js';
           id, kind:'reviewRequest', title:'維修料品申請待審核', case:c, created_at:c.updated_at || c.created_at,
           message:`${c.applicant_name || '申請人'} 建立了維修料品申請，請確認內容是否可送入正式總表。\n\n審核通過後會進入總表；若不通過，請填寫原因退回給申請人修正。`,
           meta:`申請人：${c.applicant_name || '-'}｜負責人：${c.owner_name || '-'}｜地點：${locationName(c.location_id)}｜${dateTimeText(c.created_at)}`,
-          read:!!reads[id]
+          read:false
         });
       }
       if(needsReview(c) && caseApplicantMatchesCurrentUser(c) && !canReviewCase(c)){
@@ -1216,7 +1216,7 @@ import { createNotificationStore } from './modules/notifications.js';
           id, kind:'reviewPending', title:'維修料品申請等待審核', case:c, created_at:c.updated_at || c.created_at,
           message:'你的維修料品申請已送出，正在等待維修料品負責人或管理者審核。審核通過後才會進入總表。',
           meta:`審核負責人：${c.owner_name || partOwnerName() || '-'}｜地點：${locationName(c.location_id)}｜${dateTimeText(c.created_at)}`,
-          read:reviewNoticeAcknowledged(c)
+          read:false
         });
       }
       if(reviewRejected(c) && caseApplicantMatchesCurrentUser(c)){
@@ -1336,7 +1336,6 @@ import { createNotificationStore } from './modules/notifications.js';
     const unread = allItems.filter(n => !n.read).length;
     const replyUnread = allItems.filter(n => n.kind === 'reply' && !n.read).length;
     const reviewUnread = allItems.filter(n => (n.kind === 'reviewRequest' || n.kind === 'reviewPending' || n.kind === 'reviewRejected') && !n.read).length;
-    const reviewPendingCount = allItems.filter(n => n.kind === 'reviewRequest' && !reviewNoticeAcknowledged(n.case)).length;
     const urgentUnread = allItems.filter(n => n.kind === 'urgent' && !n.read).length;
     const vendorNewUnread = allItems.filter(n => n.kind === 'vendorNewCase' && !n.read).length;
     const vendorReminderUnread = allItems.filter(n => n.kind === 'vendorReminder' && !n.read).length;
@@ -1345,7 +1344,6 @@ import { createNotificationStore } from './modules/notifications.js';
       cardHtml('未讀通知', unread, '新回覆與急件催覆', unread ? 'warn' : 'good'),
       cardHtml('新回覆', replyUnread, isVendor() ? '公司回覆需要查看' : '廠商回覆需要查看', replyUnread ? 'warn' : 'good'),
       cardHtml('審核通知', reviewUnread, '待審核或退回修正', reviewUnread ? 'warn' : 'good'),
-      cardHtml('待審核', reviewPendingCount, '審核者尚未讀取/處理', reviewPendingCount ? 'warn' : 'good'),
       cardHtml('急件催覆', urgentUnread, '急件/重大需盡快回覆', urgentUnread ? 'bad' : 'good'),
       cardHtml('廠商新案件', vendorNewUnread, '廠商需查看的新案件', vendorNewUnread ? 'warn' : 'good'),
       cardHtml('補料通知', restockUnread, '液晶面板補料對應', restockUnread ? 'warn' : 'good'),
@@ -1369,25 +1367,24 @@ import { createNotificationStore } from './modules/notifications.js';
       <div style="margin:8px 0"><b>${safe(n.case.case_no)}</b>｜${safe(n.case.title)}</div>
       <div class="small muted">${safe(n.meta)}</div>
       <p style="white-space:pre-wrap;line-height:1.7">${safe(n.message)}</p>
-      <div class="row"><button class="btn ghost small-btn" onclick="window.VCS.openNotification('${n.id}','${n.case.id}','${targetTab}')">${targetText}</button>${canAcknowledge ? (!n.read?`<button class="btn small-btn" onclick="window.VCS.markNotificationRead('${n.id}')">標記已讀/知悉</button>`:`<button class="btn ghost small-btn" onclick="window.VCS.markNotificationUnread('${n.id}')">改為未讀</button>`) : '<span class="small muted">自己建立的案件不可標記已讀/知悉</span>'}</div>
+      <div class="row"><button class="btn ghost small-btn" onclick="window.VCS.openNotification('${n.id}','${n.case.id}','${targetTab}')">${targetText}</button>${canAcknowledge ? (!n.read?`<button class="btn small-btn" onclick="window.VCS.markNotificationRead('${n.id}')">標記已讀/知悉</button>`:`<button class="btn ghost small-btn" onclick="window.VCS.markNotificationUnread('${n.id}')">改為未讀</button>`) : `<span class="small muted">${safe(notificationLockedText(n))}</span>`}</div>
     </div>`;
   }
 
   function canAcknowledgeNotification(n){
     if(n?.kind === 'reply') return true;
+    if(n?.kind === 'reviewRequest' || n?.kind === 'reviewPending') return false;
     return !caseCreatedByCurrentUser(n?.case);
   }
 
-  function reviewNoticeAcknowledged(c){
-    return state.data.case_logs.some(l => l.case_id === c?.id && l.action === '審核通知已讀');
+  function notificationLockedText(n){
+    if(n?.kind === 'reviewRequest' || n?.kind === 'reviewPending') return '審核通過/退回後才會扣除通知';
+    return '自己建立的案件不可標記已讀/知悉';
   }
 
   async function acknowledgeNotification(n){
     if(!n || !canAcknowledgeNotification(n)) return;
     markNoticeRead(n.id);
-    if(n.kind === 'reviewRequest' && !reviewNoticeAcknowledged(n.case)){
-      await addLog(n.case, '審核通知已讀', `${currentName()} 已讀待審核通知`);
-    }
   }
 
   function markCaseRepliesRead(caseId){
@@ -1404,9 +1401,6 @@ import { createNotificationStore } from './modules/notifications.js';
     const items = getNotificationItems().filter(canAcknowledgeNotification);
     for(const n of items){
       map[n.id] = nowIso();
-      if(n.kind === 'reviewRequest' && !reviewNoticeAcknowledged(n.case)){
-        await addLog(n.case, '審核通知已讀', `${currentName()} 已讀待審核通知`);
-      }
     }
     saveNotifications(map);
     renderNotifications();
