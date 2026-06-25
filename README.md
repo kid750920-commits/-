@@ -15,7 +15,7 @@ https://xin-guan-li-xi-tong.vercel.app
 - `index.html`：主要 HTML 畫面。
 - `js/main.js`：前端 ES module 入口。
 - `js/app.js`：主要業務邏輯，後續會逐步拆分。
-- `js/modules/`：共用常數、state 初始化、DOM helper、日期工具、帳號轉換、HTML escape、資料寫入、雲端資料讀取、Realtime 同步等模組。
+- `js/modules/`：共用常數、state 初始化、DOM helper、日期工具、帳號轉換、HTML escape、資料寫入、自動檢查、雲端資料讀取、Realtime 同步等模組。
 - `styles.css`：畫面樣式。
 - `config.js`：讀取 Vercel 注入的 Supabase Project URL / anon key。
 - `api/env.js`：Vercel runtime 注入環境變數。
