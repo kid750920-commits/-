@@ -13,7 +13,7 @@ import { createAutomationApi } from './modules/automation.js';
 import { createCaseFormApi } from './modules/case-form.js';
 import { createPermissionsApi } from './modules/permissions.js';
 import { createNotificationStore } from './modules/notifications.js';
-import { compactAttachmentUrl, fileToLocalPreviewUrl, isQuotaError } from './modules/file-utils.js';
+import { compactAttachmentUrl, fileToLocalPreviewUrl, isQuotaError, safeStorageFileName } from './modules/file-utils.js';
 import { beginButtonBusy, endButtonBusy } from './modules/ui-state.js';
 
 (() => {
@@ -884,34 +884,52 @@ import { beginButtonBusy, endButtonBusy } from './modules/ui-state.js';
     return `${prefix}-${today}-${num}`;
   }
 
+
   async function uploadFiles(caseId, fileList, itemId=null){
     if(!fileList || !fileList.length) return;
     for(const file of [...fileList]){
+      const baseRow = { id:uid(), case_id:caseId, item_id:itemId, file_name:file.name, file_type:file.type || 'file', uploaded_by:state.user?.id || null, uploaded_by_name:currentName(), created_at:nowIso() };
       if(state.online){
-        const path = `${caseId}/${Date.now()}-${file.name}`;
-        const { error } = await state.client.storage.from('case-attachments').upload(path, file, { upsert:false });
-        if(error) throw new Error('附件上傳失敗：' + error.message);
-        const { data } = state.client.storage.from('case-attachments').getPublicUrl(path);
-        const row = { id:uid(), case_id:caseId, item_id:itemId, file_name:file.name, file_type:file.type || 'file', file_url:data.publicUrl, storage_path:path, uploaded_by:state.user?.id || null, uploaded_by_name:currentName(), created_at:nowIso() };
+        let row;
         try{
-          await dbInsert('case_attachments', row);
-        }catch(err){
-          const m = String(err?.message || '');
-          if(!itemId || !(m.includes('item_id') || m.includes('schema cache') || m.includes('column'))) throw err;
-          const { item_id, ...compatibleRow } = row;
-          await dbInsert('case_attachments', compatibleRow);
-          toast('照片已上傳；提醒：資料庫尚未支援照片綁定單筆 SN，請補跑新版 SQL 才能完整對應照片。', 'warn');
+          const path = `${caseId}/${Date.now()}-${uid()}-${safeStorageFileName(file.name)}`;
+          const { error } = await state.client.storage.from('case-attachments').upload(path, file, { upsert:false });
+          if(error) throw error;
+          const { data } = state.client.storage.from('case-attachments').getPublicUrl(path);
+          row = { ...baseRow, file_url:data.publicUrl, storage_path:path };
+        }catch(storageErr){
+          console.warn('Storage upload failed, saving compact preview instead.', storageErr);
+          const dataUrl = await fileToLocalPreviewUrl(file);
+          row = { ...baseRow, file_url:dataUrl, storage_path:'storage-fallback' };
+          toast('Storage 上傳失敗，已先用壓縮預覽方式保存附件；請管理者檢查 Supabase Storage 權限。', 'warn');
         }
+        await insertAttachmentRow(row);
       }else{
         const dataUrl = await fileToLocalPreviewUrl(file);
-        await dbInsert('case_attachments', { id:uid(), case_id:caseId, item_id:itemId, file_name:file.name, file_type:file.type || 'file', file_url:dataUrl, storage_path:'local-preview', uploaded_by:state.user?.id || null, uploaded_by_name:currentName(), created_at:nowIso() });
+        await insertAttachmentRow({ ...baseRow, file_url:dataUrl, storage_path:'local-preview' });
       }
+    }
+  }
+
+  async function insertAttachmentRow(row){
+    try{
+      return await dbInsert('case_attachments', row);
+    }catch(err){
+      const m = String(err?.message || '');
+      const schemaMismatch = m.includes('schema cache') || m.includes('column') || m.includes('Could not find');
+      if(!schemaMismatch) throw err;
+      const compatibleRow = { ...row };
+      ['item_id', 'uploaded_by', 'uploaded_by_name'].forEach(key => delete compatibleRow[key]);
+      await dbInsert('case_attachments', compatibleRow);
+      toast('附件已保存；提醒：Supabase 附件欄位尚未更新，部分欄位暫時以相容模式儲存。', 'warn');
+      return compatibleRow;
     }
   }
 
   async function deleteCaseStorageFiles(caseId){
     const files = state.data.case_attachments.filter(a => a.case_id === caseId);
-    const paths = [...new Set(files.map(a => a.storage_path).filter(p => p && p !== 'local-preview'))];
+    const localPaths = new Set(['local-preview', 'storage-fallback', 'local-compacted']);
+    const paths = [...new Set(files.map(a => a.storage_path).filter(p => p && !localPaths.has(p)))];
     if(state.online && paths.length){
       const { error } = await state.client.storage.from('case-attachments').remove(paths);
       if(error) throw new Error('刪除 Storage 照片失敗：' + error.message);

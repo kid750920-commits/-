@@ -12,6 +12,18 @@ export function compactAttachmentUrl(fileName='附件已壓縮'){
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
 
+export function safeStorageFileName(fileName='file'){
+  const parts = String(fileName || 'file').split('.');
+  const ext = parts.length > 1 ? '.' + parts.pop().replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) : '';
+  const base = parts.join('.')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'attachment';
+  return `${base}${ext || '.bin'}`;
+}
+
 export function fileToDataUrl(file){
   return new Promise((resolve,reject) => {
     const reader = new FileReader();
