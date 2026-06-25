@@ -11,6 +11,7 @@ import { createAccountAuthHelpers } from './modules/auth.js';
 import { createDbApi } from './modules/db.js';
 import { createAutomationApi } from './modules/automation.js';
 import { createCaseFormApi } from './modules/case-form.js';
+import { createPermissionsApi } from './modules/permissions.js';
 
 (() => {
   'use strict';
@@ -27,6 +28,11 @@ import { createCaseFormApi } from './modules/case-form.js';
   const CLOUD_PAGE_SIZE = PAGE_SIZES.cloudFetch;
   const { accountFromAuthEmail, accountToAuthEmail, normalizeAccount } = createAccountAuthHelpers(INTERNAL_AUTH_DOMAIN);
   const state = createInitialState(CASE_LIST_PAGE_SIZE);
+  const permissionsApi = createPermissionsApi({
+    state,
+    accountFromAuthEmail,
+    byId
+  });
   const {
     loadCloudData,
     resetCaseDetailLoaded,
@@ -235,69 +241,32 @@ import { createCaseFormApi } from './modules/case-form.js';
     });
     return copy;
   }
-  function currentAccountName(){ return state.profile?.username || accountFromAuthEmail(state.user?.email) || ''; }
-  function displayAccountValue(v){ return accountFromAuthEmail(v); }
-  function currentName(){ return state.profile?.display_name || currentAccountName() || '訪客'; }
-  function currentRole(){ return state.profile?.role || state.user?.role || 'viewer'; }
-  function currentUserId(){ return state.user?.id || state.profile?.id || null; }
-  function currentReplyRole(){ return isVendor() ? '廠商' : '公司'; }
-  function currentAccountLabel(){
-    const parts = [currentName(), roleName(currentRole())];
-    const account = currentAccountName();
-    if(account) parts.push('帳號：' + account);
-    return parts.filter(Boolean).join('｜');
-  }
+  function currentAccountName(){ return permissionsApi.currentAccountName(); }
+  function displayAccountValue(v){ return permissionsApi.displayAccountValue(v); }
+  function currentName(){ return permissionsApi.currentName(); }
+  function currentRole(){ return permissionsApi.currentRole(); }
+  function currentUserId(){ return permissionsApi.currentUserId(); }
+  function currentReplyRole(){ return permissionsApi.currentReplyRole(); }
+  function currentAccountLabel(){ return permissionsApi.currentAccountLabel(); }
   function notifyStoreKey(){ return `${NOTIFY_KEY}:${state.user?.id || state.profile?.display_name || currentRole()}`; }
   function readNotifications(){ try{ return JSON.parse(localStorage.getItem(notifyStoreKey()) || '{}'); }catch(_){ return {}; } }
   function saveNotifications(map){ localStorage.setItem(notifyStoreKey(), JSON.stringify(map || {})); }
   function isNoticeRead(id){ return !!readNotifications()[id]; }
   function markNoticeRead(id){ const map = readNotifications(); map[id] = nowIso(); saveNotifications(map); }
   function markNoticeUnread(id){ const map = readNotifications(); delete map[id]; saveNotifications(map); }
-  function roleName(role){ return ({admin:'管理者',operator:'作業員',vendor:'廠商',viewer:'訪客檢視'})[role] || role || '訪客檢視'; }
-  function isAdmin(){ return currentRole() === 'admin'; }
-  function isVendor(){ return currentRole() === 'vendor'; }
-  function isViewer(){ return currentRole() === 'viewer'; }
-  function canCreate(){ return !isViewer() && !isVendor(); }
-  function canEditCase(c){ return !isViewer() && (!isVendor() || c.vendor_id === state.profile?.vendor_id); }
-  function canEditCore(){ return !isViewer() && !isVendor(); }
-  function canDeleteCase(c){
-    if(!c || isViewer() || isVendor()) return false;
-    const userId = currentUserId();
-    return isAdmin() || (!!userId && c.created_by === userId);
-  }
-  function identityText(v){
-    return String(v || '').trim().toLowerCase();
-  }
-  function currentIdentitySet(){
-    return new Set([
-      currentName(),
-      currentAccountName(),
-      state.profile?.username,
-      state.profile?.display_name,
-      state.profile?.email,
-      state.user?.email,
-      accountFromAuthEmail(state.user?.email)
-    ].map(identityText).filter(Boolean));
-  }
-  function caseBelongsToCurrentUser(c){
-    const userId = currentUserId();
-    if(userId && c.created_by && c.created_by === userId) return true;
-    const identities = currentIdentitySet();
-    return [c.owner_name, c.applicant_name].some(v => identities.has(identityText(v))) || caseReturnLocationBelongsToCurrentUser(c);
-  }
-  function caseReturnLocationBelongsToCurrentUser(c){
-    const returnLocationId = c?.return_location_id;
-    if(!returnLocationId) return false;
-    if(state.profile?.location_id && state.profile.location_id === returnLocationId) return true;
-    const loc = byId(state.data.locations, returnLocationId);
-    if(!loc?.manager_name) return false;
-    return currentIdentitySet().has(identityText(loc.manager_name));
-  }
-  function shouldShowPersonalCaseNotice(c){
-    if(isViewer()) return false;
-    if(isVendor()) return true;
-    return caseBelongsToCurrentUser(c);
-  }
+  function roleName(role){ return permissionsApi.roleName(role); }
+  function isAdmin(){ return permissionsApi.isAdmin(); }
+  function isVendor(){ return permissionsApi.isVendor(); }
+  function isViewer(){ return permissionsApi.isViewer(); }
+  function canCreate(){ return permissionsApi.canCreate(); }
+  function canEditCase(c){ return permissionsApi.canEditCase(c); }
+  function canEditCore(){ return permissionsApi.canEditCore(); }
+  function canDeleteCase(c){ return permissionsApi.canDeleteCase(c); }
+  function identityText(v){ return permissionsApi.identityText(v); }
+  function currentIdentitySet(){ return permissionsApi.currentIdentitySet(); }
+  function caseBelongsToCurrentUser(c){ return permissionsApi.caseBelongsToCurrentUser(c); }
+  function caseReturnLocationBelongsToCurrentUser(c){ return permissionsApi.caseReturnLocationBelongsToCurrentUser(c); }
+  function shouldShowPersonalCaseNotice(c){ return permissionsApi.shouldShowPersonalCaseNotice(c); }
 
   async function boot(){
     loadConfigToInputs();
