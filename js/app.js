@@ -5,6 +5,8 @@ import { $, qsa } from './modules/dom.js';
 import { addDaysInput, compactDate, dateText, dateTimeText, daysBetween, nowIso, toDateInput, toLocalDateInput, todayStart } from './modules/date-utils.js';
 import { safe } from './modules/html.js';
 import { byId } from './modules/data-utils.js';
+import { createCloudDataApi } from './modules/cloud-data.js';
+import { createRealtimeSync } from './modules/realtime.js';
 
 (() => {
   'use strict';
@@ -36,6 +38,31 @@ import { byId } from './modules/data-utils.js';
   const REVIEW_STATUS = { pending:'pending', approved:'approved', rejected:'rejected' };
 
   const state = createInitialState(CASE_LIST_PAGE_SIZE);
+  const {
+    loadCloudData,
+    resetCaseDetailLoaded,
+    ensureCaseDetailRows
+  } = createCloudDataApi({
+    state,
+    cloudPageSize: CLOUD_PAGE_SIZE,
+    emptyData,
+    $,
+    renderCaseModal,
+    errorBanner
+  });
+  const {
+    startRealtimeSync,
+    stopRealtimeSync
+  } = createRealtimeSync({
+    state,
+    cloudTables: CLOUD_TABLES,
+    closeModal,
+    hydrateSelectOptions,
+    updateUserUi,
+    renderAll,
+    refreshAll,
+    updateNotificationUi
+  });
 
   function seedData(){
     const now = new Date();
@@ -578,148 +605,6 @@ import { byId } from './modules/data-utils.js';
       if(silent) return;
       toast('資料已更新');
     }catch(err){ console.error(err); toast(err.message || '資料載入失敗', 'bad'); }
-  }
-
-  async function loadCloudData(){
-    const data = emptyData();
-    const mainTables = ['vendors','locations','profiles','cases','case_items','case_replies'];
-    const limitedTables = { case_attachments:500, case_logs:300 };
-    for(const table of mainTables){
-      const orderCol = table === 'cases' ? 'updated_at' : 'created_at';
-      data[table] = await fetchCloudRows(table, { orderCol, ascending:false });
-    }
-    for(const [table, limit] of Object.entries(limitedTables)){
-      data[table] = await fetchCloudRows(table, { orderCol:'created_at', ascending:false, limit });
-    }
-    state.data = data;
-    resetCaseDetailLoaded();
-  }
-
-  async function fetchCloudRows(table, options={}){
-    const pageSize = Math.max(1, Number(options.pageSize || CLOUD_PAGE_SIZE));
-    const limit = Number(options.limit || 0);
-    const orderCol = options.orderCol || 'created_at';
-    const ascending = !!options.ascending;
-    const rows = [];
-    let from = 0;
-    while(true){
-      const remaining = limit ? Math.max(limit - rows.length, 0) : pageSize;
-      if(limit && remaining <= 0) break;
-      const size = limit ? Math.min(pageSize, remaining) : pageSize;
-      const to = from + size - 1;
-      const { data: batch, error } = await state.client
-        .from(table)
-        .select('*')
-        .order(orderCol, { ascending })
-        .range(from, to);
-      if(error) throw error;
-      const chunk = batch || [];
-      rows.push(...chunk);
-      if(chunk.length < size) break;
-      from += size;
-    }
-    return rows;
-  }
-
-  function resetCaseDetailLoaded(){
-    state.caseDetailLoaded = { case_attachments:new Set(), case_logs:new Set() };
-    state.caseDetailLoading = {};
-  }
-
-  function mergeCloudRows(table, rows){
-    const byId = new Map((state.data[table] || []).map(row => [row.id, row]));
-    (rows || []).forEach(row => byId.set(row.id, row));
-    state.data[table] = [...byId.values()].sort((a,b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-  }
-
-  async function ensureCaseDetailRows(caseId, table, tab){
-    if(!state.online || !state.client || !caseId) return;
-    if(!state.caseDetailLoaded[table]) state.caseDetailLoaded[table] = new Set();
-    if(state.caseDetailLoaded[table].has(caseId)) return;
-    const key = `${table}:${caseId}`;
-    if(state.caseDetailLoading[key]) return;
-    state.caseDetailLoading[key] = true;
-    try{
-      const { data: rows, error } = await state.client
-        .from(table)
-        .select('*')
-        .eq('case_id', caseId)
-        .order('created_at', { ascending:false });
-      if(error) throw error;
-      mergeCloudRows(table, rows || []);
-      state.caseDetailLoaded[table].add(caseId);
-      if(state.selectedCase?.id === caseId && state.modalTab === tab) renderCaseModal(tab);
-    }catch(err){
-      console.error(err);
-      errorBanner(err.message || '案件明細載入失敗', $('modalContent'));
-    }finally{
-      delete state.caseDetailLoading[key];
-    }
-  }
-
-  function startRealtimeSync(){
-    if(!state.online || !state.client) return;
-    stopRealtimeSync();
-    let channel = state.client.channel('vcs-shared-data');
-    CLOUD_TABLES.forEach(table => {
-      channel = channel.on('postgres_changes', { event:'*', schema:'public', table }, handleRealtimeChange);
-    });
-    state.realtimeChannel = channel.subscribe(status => {
-      if(status === 'SUBSCRIBED') console.info('Supabase realtime sync enabled');
-      if(status === 'CHANNEL_ERROR') console.warn('Supabase realtime sync channel error');
-    });
-  }
-
-  function stopRealtimeSync(){
-    if(state.realtimeRefreshTimer){
-      clearTimeout(state.realtimeRefreshTimer);
-      state.realtimeRefreshTimer = null;
-    }
-    if(state.client && state.realtimeChannel){
-      state.client.removeChannel(state.realtimeChannel);
-    }
-    state.realtimeChannel = null;
-  }
-
-  function handleRealtimeChange(payload){
-    applyRealtimePayload(payload);
-    scheduleRealtimeRefresh();
-  }
-
-  function applyRealtimePayload(payload){
-    const table = payload?.table;
-    const eventType = payload?.eventType;
-    const row = eventType === 'DELETE' ? payload?.old : payload?.new;
-    if(!table || !row?.id || !state.data[table]) return;
-
-    if(eventType === 'DELETE'){
-      state.data[table] = state.data[table].filter(item => item.id !== row.id);
-      if(table === 'cases'){
-        state.data.case_items = state.data.case_items.filter(item => item.case_id !== row.id);
-        state.data.case_replies = state.data.case_replies.filter(item => item.case_id !== row.id);
-        state.data.case_attachments = state.data.case_attachments.filter(item => item.case_id !== row.id);
-        state.data.case_logs = state.data.case_logs.filter(item => item.case_id !== row.id);
-        if(state.selectedCase?.id === row.id) closeModal();
-      }
-    }else{
-      const index = state.data[table].findIndex(item => item.id === row.id);
-      if(index >= 0) state.data[table][index] = { ...state.data[table][index], ...row };
-      else state.data[table].unshift(row);
-    }
-
-    hydrateSelectOptions();
-    updateUserUi();
-    renderAll();
-  }
-
-  function scheduleRealtimeRefresh(){
-    if(!state.online) return;
-    if(state.realtimeRefreshTimer) clearTimeout(state.realtimeRefreshTimer);
-    state.realtimeRefreshTimer = setTimeout(async () => {
-      state.realtimeRefreshTimer = null;
-      await refreshAll({ silent:true });
-      updateNotificationUi();
-    }, 500);
   }
 
   function saveLocal(db=state.data){
