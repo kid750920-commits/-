@@ -15,6 +15,8 @@ import { createPermissionsApi } from './modules/permissions.js';
 import { createNotificationStore } from './modules/notifications.js';
 import { compactAttachmentUrl, fileToLocalPreviewUrl, isQuotaError, safeStorageFileName } from './modules/file-utils.js';
 import { beginButtonBusy, endButtonBusy } from './modules/ui-state.js';
+import { buildRestockText, normalizedTitle, parseRestockInfo } from './modules/lcd-utils.js';
+import { csvEscape, downloadText, excelHtml, parseCsv, statRows } from './modules/export-utils.js';
 
 (() => {
   'use strict';
@@ -186,9 +188,6 @@ import { beginButtonBusy, endButtonBusy } from './modules/ui-state.js';
     if(!reviewRejected(c) || isViewer() || isVendor()) return false;
     return isAdmin() || caseApplicantMatchesCurrentUser(c) || partReviewerMatchesCurrentUser();
   }
-  function normalizedTitle(v){
-    return String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
-  }
   function findExistingLcdCaseByTitle(title){
     const key = normalizedTitle(title);
     if(!key) return null;
@@ -198,34 +197,6 @@ import { beginButtonBusy, endButtonBusy } from './modules/ui-state.js';
     const key = String(sn || '').trim().toLowerCase();
     if(!key) return null;
     return state.data.case_items.find(i => i.case_id === caseId && String(i.sn || '').trim().toLowerCase() === key) || null;
-  }
-  function parseRestockInfo(text=''){
-    const result = {};
-    String(text || '').split(/\r?\n/).forEach(line => {
-      const [rawKey, ...rest] = line.split('：');
-      if(!rawKey || !rest.length) return;
-      const key = rawKey.trim();
-      const value = rest.join('：').trim();
-      if(key === '補料批次') result.batch = value;
-      if(key === '貨櫃號碼') result.container = value;
-      if(key === '補料日期') result.date = value;
-      if(key === '補料狀態') result.status = value;
-      if(key === '廠商判斷') result.note = value;
-    });
-    return result;
-  }
-  function buildRestockText(previous='', info={}){
-    const old = parseRestockInfo(previous);
-    const merged = { ...old, ...info };
-    const existingNote = old.note || String(previous || '').split(/\r?\n/).filter(line => !/^(補料批次|貨櫃號碼|補料日期|補料狀態|廠商判斷)：/.test(line)).join(' ').trim();
-    const note = merged.note || existingNote;
-    return [
-      merged.batch ? `補料批次：${merged.batch}` : '',
-      merged.container ? `貨櫃號碼：${merged.container}` : '',
-      merged.date ? `補料日期：${merged.date}` : '',
-      merged.status ? `補料狀態：${merged.status}` : '',
-      note ? `廠商判斷：${note}` : ''
-    ].filter(Boolean).join('\n');
   }
   function itemPhotos(itemId, caseId){
     return state.data.case_attachments.filter(a => a.item_id === itemId || (!itemId && a.case_id === caseId));
@@ -2311,19 +2282,11 @@ import { beginButtonBusy, endButtonBusy } from './modules/ui-state.js';
     return '';
   }
 
-
-  function csvEscape(v){ return `"${String(v??'').replaceAll('"','""')}"`; }
   function buildCaseRows(cases=visibleMainCases()){
     const header = ['案件編號','案件類型','案件標題','優先度','狀態','逾期狀態','逾期天數','廠商回覆狀態','廠商未回覆天數','上次自動提醒','地點','回寄地點','廠商','申請人','負責人','追蹤單號','回寄單號','送出日期','廠商收件日','預計完成日','提醒天數','最後回覆','問題描述'];
     const rows = cases.map(c => { const calc = calcCase(c); return [c.case_no,normalizeCaseType(c.case_type),c.title,c.priority,c.status,c.overdue_status || (calc.overdue?'已逾期':calc.soon?'快逾期':'正常'),calc.overdueDays,c.vendor_reply_status || (calc.noReply?'廠商未回覆':'正常'),calc.noReplyDays,c.last_vendor_reminder_date,locationName(c.location_id),returnLocationName(c),vendorName(c.vendor_id),c.applicant_name,c.owner_name,c.tracking_no,c.return_tracking_no,c.ship_date,c.vendor_received_date,c.due_date,c.reminder_days,c.last_reply_at,c.description]; });
     return [header, ...rows];
   }
-
-  function downloadText(filename, text, type='text/plain;charset=utf-8'){
-    const blob = new Blob([text], {type});
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; a.click(); URL.revokeObjectURL(a.href);
-  }
-
   function exportCasesExcel(){
     const cases = visibleMainCases();
     const caseRows = buildCaseRows(cases);
@@ -2343,28 +2306,9 @@ import { beginButtonBusy, endButtonBusy } from './modules/ui-state.js';
     ];
     downloadText(`廠商協作統計報表_${toDateInput(new Date())}.xls`, excelHtml(sheets), 'application/vnd.ms-excel;charset=utf-8');
   }
-  function statRows(rows, label){ return [[label,'總數','未結','逾期','急件/重大'], ...rows.map(r => [r.name,r.total,r.open,r.overdue,r.urgent])]; }
-  function excelHtml(sheets){
-    return `\ufeff<html><head><meta charset="utf-8"></head><body>${sheets.map(sheet => `<h2>${safe(sheet.name)}</h2><table border="1">${sheet.rows.map(r => `<tr>${r.map(c => `<td>${safe(c)}</td>`).join('')}</tr>`).join('')}</table><br>`).join('')}</body></html>`;
-  }
-
   function exportImportTemplate(){
     const rows = [["案件類型","案件標題","優先度","地點","回寄地點","廠商","申請人","負責人","單號","預計完成日","品項","規格","SN","數量","問題描述"], ["維修料品申請","範例：廠房A申請電源","急件","廠房 A","總公司","YS 廠商","地點負責人","白駿森","","2026-07-01","電源","百納","","5","維修備料申請"]];
     downloadText(`案件匯入範本_${toDateInput(new Date())}.csv`, '\ufeff' + rows.map(r=>r.map(csvEscape).join(',')).join('\n'), 'text/csv;charset=utf-8');
-  }
-
-  function parseCsv(text){
-    const rows=[]; let row=[], cell='', q=false;
-    for(let i=0;i<text.length;i++){
-      const ch=text[i], nx=text[i+1];
-      if(q && ch==='"' && nx==='"'){ cell+='"'; i++; continue; }
-      if(ch==='"'){ q=!q; continue; }
-      if(!q && ch===','){ row.push(cell); cell=''; continue; }
-      if(!q && (ch==='\n' || ch==='\r')){ if(ch==='\r' && nx==='\n') i++; row.push(cell); if(row.some(x=>x.trim())) rows.push(row); row=[]; cell=''; continue; }
-      cell+=ch;
-    }
-    row.push(cell); if(row.some(x=>x.trim())) rows.push(row);
-    return rows;
   }
   function mapByName(list, nameKey, name){
     return list.find(x => String(x[nameKey]||'').trim() === String(name||'').trim());
