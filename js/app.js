@@ -163,6 +163,10 @@ import { createNotificationStore } from './modules/notifications.js';
     const identities = currentIdentitySet();
     return [c?.applicant_name].some(v => identities.has(identityText(v)));
   }
+  function caseCreatedByCurrentUser(c){
+    const userId = currentUserId();
+    return !!(userId && c?.created_by && c.created_by === userId);
+  }
   function partReviewerMatchesCurrentUser(){
     const reviewer = partOwnerProfile();
     if(!reviewer) return false;
@@ -174,7 +178,7 @@ import { createNotificationStore } from './modules/notifications.js';
   }
   function canReviewCase(c){
     if(!needsReview(c) || isViewer() || isVendor()) return false;
-    return isAdmin() || partReviewerMatchesCurrentUser();
+    return isAdmin() || partReviewerMatchesCurrentUser() || caseOwnerMatchesCurrentUser(c);
   }
   function canResubmitReview(c){
     if(!reviewRejected(c) || isViewer() || isVendor()) return false;
@@ -1187,6 +1191,15 @@ import { createNotificationStore } from './modules/notifications.js';
     const reads = readNotifications();
     const targetReplyRole = isVendor() ? '公司' : '廠商';
     cases.forEach(c => {
+      if(isVendor()){
+        const id = `vendor-new-${c.id}-${c.created_at || ''}`;
+        items.push({
+          id, kind:'vendorNewCase', title:'新案件通知', case:c, created_at:c.created_at || c.updated_at,
+          message:`我司新增了案件「${c.title}」，請確認案件內容、品項與預計處理時程。`,
+          meta:`案件類型：${normalizeCaseType(c.case_type)}｜送修地點：${locationName(c.location_id)}｜回寄地點：${returnLocationName(c)}｜${dateTimeText(c.created_at)}`,
+          read:!!reads[id]
+        });
+      }
       if(isViewer() || isVendor() || !isPartCase(c)) return;
       if(needsReview(c) && canReviewCase(c)){
         const id = `review-request-${c.id}-${c.updated_at || c.created_at || ''}`;
@@ -1281,12 +1294,13 @@ import { createNotificationStore } from './modules/notifications.js';
   function notificationPriority(n){
     const order = {
       reviewRequest:0,
-      urgent:1,
-      vendorReminder:2,
-      reviewRejected:3,
-      reviewPending:4,
-      restock:5,
-      reply:6
+      vendorNewCase:1,
+      urgent:2,
+      vendorReminder:3,
+      reviewRejected:4,
+      reviewPending:5,
+      restock:6,
+      reply:7
     };
     return order[n.kind] ?? 9;
   }
@@ -1316,12 +1330,14 @@ import { createNotificationStore } from './modules/notifications.js';
     if(f === 'review') items = items.filter(n => n.kind === 'reviewRequest' || n.kind === 'reviewPending' || n.kind === 'reviewRejected');
     if(f === 'urgent') items = items.filter(n => n.kind === 'urgent');
     if(f === 'restock') items = items.filter(n => n.kind === 'restock');
+    if(f === 'vendorNewCase') items = items.filter(n => n.kind === 'vendorNewCase');
     if(f === 'vendorReminder') items = items.filter(n => n.kind === 'vendorReminder');
     const allItems = getNotificationItems();
     const unread = allItems.filter(n => !n.read).length;
     const replyUnread = allItems.filter(n => n.kind === 'reply' && !n.read).length;
     const reviewUnread = allItems.filter(n => (n.kind === 'reviewRequest' || n.kind === 'reviewPending' || n.kind === 'reviewRejected') && !n.read).length;
     const urgentUnread = allItems.filter(n => n.kind === 'urgent' && !n.read).length;
+    const vendorNewUnread = allItems.filter(n => n.kind === 'vendorNewCase' && !n.read).length;
     const vendorReminderUnread = allItems.filter(n => n.kind === 'vendorReminder' && !n.read).length;
     const restockUnread = allItems.filter(n => n.kind === 'restock' && !n.read).length;
     $('notificationSummary').innerHTML = [
@@ -1329,6 +1345,7 @@ import { createNotificationStore } from './modules/notifications.js';
       cardHtml('新回覆', replyUnread, isVendor() ? '公司回覆需要查看' : '廠商回覆需要查看', replyUnread ? 'warn' : 'good'),
       cardHtml('審核通知', reviewUnread, '待審核或退回修正', reviewUnread ? 'warn' : 'good'),
       cardHtml('急件催覆', urgentUnread, '急件/重大需盡快回覆', urgentUnread ? 'bad' : 'good'),
+      cardHtml('廠商新案件', vendorNewUnread, '廠商需查看的新案件', vendorNewUnread ? 'warn' : 'good'),
       cardHtml('補料通知', restockUnread, '液晶面板補料對應', restockUnread ? 'warn' : 'good'),
       cardHtml('全部通知', allItems.length, '目前可查看通知', 'blue')
     ].join('');
@@ -1339,22 +1356,27 @@ import { createNotificationStore } from './modules/notifications.js';
   function notificationRow(n){
     const originalKind = n.kind;
     if(n.kind === 'reviewPending') n = {...n, kind:'reviewRequest'};
-    let badge = n.kind === 'urgent' ? '<span class="badge bad-b">急件催覆</span>' : n.kind === 'vendorReminder' ? '<span class="badge violet-b">廠商未回覆</span>' : n.kind === 'restock' ? '<span class="badge blue-b">補料通知</span>' : n.kind === 'reviewRequest' ? '<span class="badge warn-b">待審核</span>' : n.kind === 'reviewRejected' ? '<span class="badge bad-b">審核退回</span>' : '<span class="badge warn-b">新回覆</span>';
+    const canAcknowledge = canAcknowledgeNotification(n);
+    let badge = n.kind === 'urgent' ? '<span class="badge bad-b">急件催覆</span>' : n.kind === 'vendorNewCase' ? '<span class="badge blue-b">新案件</span>' : n.kind === 'vendorReminder' ? '<span class="badge violet-b">廠商未回覆</span>' : n.kind === 'restock' ? '<span class="badge blue-b">補料通知</span>' : n.kind === 'reviewRequest' ? '<span class="badge warn-b">待審核</span>' : n.kind === 'reviewRejected' ? '<span class="badge bad-b">審核退回</span>' : '<span class="badge warn-b">新回覆</span>';
     if(originalKind === 'reviewPending') badge = '<span class="badge warn-b">等待審核</span>';
     const read = n.read ? '<span class="badge good-b">已讀/已知悉</span>' : '<span class="badge bad-b">未讀</span>';
-    const targetTab = n.kind === 'restock' ? 'items' : (n.kind === 'reviewRequest' || n.kind === 'reviewRejected') ? 'basic' : 'replies';
-    const targetText = n.kind === 'restock' ? '查看補料對應' : (n.kind === 'reviewRequest' || n.kind === 'reviewRejected') ? '查看審核資料' : '查看案件回覆';
+    const targetTab = n.kind === 'restock' ? 'items' : (n.kind === 'reviewRequest' || n.kind === 'reviewRejected' || n.kind === 'vendorNewCase') ? 'basic' : 'replies';
+    const targetText = n.kind === 'restock' ? '查看補料對應' : (n.kind === 'reviewRequest' || n.kind === 'reviewRejected') ? '查看審核資料' : n.kind === 'vendorNewCase' ? '查看新案件' : '查看案件回覆';
     return `<div class="item-box notice-box ${n.read?'notice-read':'notice-unread'}">
       <div class="row" style="justify-content:space-between"><div><b>${safe(n.title)}</b> ${badge} ${priorityBadge(n.case.priority)}</div>${read}</div>
       <div style="margin:8px 0"><b>${safe(n.case.case_no)}</b>｜${safe(n.case.title)}</div>
       <div class="small muted">${safe(n.meta)}</div>
       <p style="white-space:pre-wrap;line-height:1.7">${safe(n.message)}</p>
-      <div class="row"><button class="btn ghost small-btn" onclick="window.VCS.openCase('${n.case.id}','${targetTab}')">${targetText}</button>${!n.read?`<button class="btn small-btn" onclick="window.VCS.markNotificationRead('${n.id}')">標記已讀/知悉</button>`:`<button class="btn ghost small-btn" onclick="window.VCS.markNotificationUnread('${n.id}')">改為未讀</button>`}</div>
+      <div class="row"><button class="btn ghost small-btn" onclick="window.VCS.openNotification('${n.id}','${n.case.id}','${targetTab}')">${targetText}</button>${canAcknowledge ? (!n.read?`<button class="btn small-btn" onclick="window.VCS.markNotificationRead('${n.id}')">標記已讀/知悉</button>`:`<button class="btn ghost small-btn" onclick="window.VCS.markNotificationUnread('${n.id}')">改為未讀</button>`) : '<span class="small muted">自己建立的案件不可標記已讀/知悉</span>'}</div>
     </div>`;
   }
 
+  function canAcknowledgeNotification(n){
+    return !caseCreatedByCurrentUser(n?.case);
+  }
+
   function markCaseRepliesRead(caseId){
-    const items = getNotificationItems().filter(n => n.kind === 'reply' && n.case.id === caseId);
+    const items = getNotificationItems().filter(n => n.kind === 'reply' && n.case.id === caseId && canAcknowledgeNotification(n));
     if(!items.length) return;
     const map = readNotifications();
     items.forEach(n => { map[n.id] = nowIso(); });
@@ -1364,7 +1386,7 @@ import { createNotificationStore } from './modules/notifications.js';
 
   function markAllNotificationsRead(){
     const map = readNotifications();
-    getNotificationItems().forEach(n => { map[n.id] = nowIso(); });
+    getNotificationItems().filter(canAcknowledgeNotification).forEach(n => { map[n.id] = nowIso(); });
     saveNotifications(map);
     renderNotifications();
     toast('通知已全部標記已讀/知悉');
@@ -2425,6 +2447,36 @@ import { createNotificationStore } from './modules/notifications.js';
     setTimeout(() => banner.remove(), 30000);
   }
 
-  window.VCS = { openCase, toggleVendor, toggleLocation, saveLocation, deleteVendor, deleteLocation, saveProfileRole, toggleProfileActive, copyFollowup, markVendorFollowed, markNotificationRead:(id)=>{ markNoticeRead(id); renderNotifications(); updateNotificationUi(); }, markNotificationUnread:(id)=>{ markNoticeUnread(id); renderNotifications(); updateNotificationUi(); } };
+  window.VCS = {
+    openCase,
+    openNotification:(noticeId, caseId, tab='basic') => {
+      const notice = getNotificationItems().find(n => n.id === noticeId);
+      if(!notice || canAcknowledgeNotification(notice)) markNoticeRead(noticeId);
+      renderNotifications();
+      updateNotificationUi();
+      openCase(caseId, tab);
+    },
+    toggleVendor,
+    toggleLocation,
+    saveLocation,
+    deleteVendor,
+    deleteLocation,
+    saveProfileRole,
+    toggleProfileActive,
+    copyFollowup,
+    markVendorFollowed,
+    markNotificationRead:(id)=>{
+      const notice = getNotificationItems().find(n => n.id === id);
+      if(!notice || canAcknowledgeNotification(notice)) markNoticeRead(id);
+      renderNotifications();
+      updateNotificationUi();
+    },
+    markNotificationUnread:(id)=>{
+      const notice = getNotificationItems().find(n => n.id === id);
+      if(!notice || canAcknowledgeNotification(notice)) markNoticeUnread(id);
+      renderNotifications();
+      updateNotificationUi();
+    }
+  };
   boot();
 })();
