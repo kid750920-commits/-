@@ -7,6 +7,7 @@ import { safe } from './modules/html.js';
 import { byId } from './modules/data-utils.js';
 import { createCloudDataApi } from './modules/cloud-data.js';
 import { createRealtimeSync } from './modules/realtime.js';
+import { createAccountAuthHelpers } from './modules/auth.js';
 
 (() => {
   'use strict';
@@ -21,6 +22,7 @@ import { createRealtimeSync } from './modules/realtime.js';
   const DRAFT_KEY = APP_KEYS.newCaseDraft;
   const CASE_LIST_PAGE_SIZE = PAGE_SIZES.caseList;
   const CLOUD_PAGE_SIZE = PAGE_SIZES.cloudFetch;
+  const { accountFromAuthEmail, accountToAuthEmail, normalizeAccount } = createAccountAuthHelpers(INTERNAL_AUTH_DOMAIN);
   const LCD_CASE_TYPE = '液晶面板申請(保固內)';
 
   const CASE_TYPES = [
@@ -213,28 +215,6 @@ import { createRealtimeSync } from './modules/realtime.js';
       return { ...a, file_url:compactAttachmentUrl(a.file_name || `附件 ${idx + 1}`), storage_path:'local-compacted', compacted:true };
     });
     return copy;
-  }
-  function accountHash(str){
-    let h = 2166136261;
-    for(const ch of String(str || '')){ h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); }
-    return (h >>> 0).toString(36);
-  }
-  function normalizeAccount(v){ return String(v || '').trim().replace(/\s+/g, ''); }
-  function accountSlug(v){
-    const raw = normalizeAccount(v).toLowerCase();
-    const slug = raw.replace(/[^a-z0-9._-]/g, '-').replace(/-+/g, '-').replace(/^[.-]+|[.-]+$/g, '').slice(0, 24) || 'user';
-    return `${slug}-${accountHash(raw)}`;
-  }
-  function accountToAuthEmail(account){
-    const raw = normalizeAccount(account).toLowerCase();
-    if(raw.includes('@')) return raw; // 兼容舊版 Email 帳號登入
-    return `${accountSlug(raw)}@${INTERNAL_AUTH_DOMAIN}`;
-  }
-  function accountFromAuthEmail(email){
-    const v = String(email || '').trim();
-    if(!v) return '';
-    if(v.endsWith('@' + INTERNAL_AUTH_DOMAIN)) return v.slice(0, -1 * (INTERNAL_AUTH_DOMAIN.length + 1));
-    return v.includes('@') ? v.split('@')[0] : v;
   }
   function currentAccountName(){ return state.profile?.username || accountFromAuthEmail(state.user?.email) || ''; }
   function displayAccountValue(v){ return accountFromAuthEmail(v); }
