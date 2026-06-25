@@ -14,6 +14,7 @@ import { createCaseFormApi } from './modules/case-form.js';
 import { createPermissionsApi } from './modules/permissions.js';
 import { createNotificationStore } from './modules/notifications.js';
 import { compactAttachmentUrl, fileToLocalPreviewUrl, isQuotaError } from './modules/file-utils.js';
+import { beginButtonBusy, endButtonBusy } from './modules/ui-state.js';
 
 (() => {
   'use strict';
@@ -919,23 +920,6 @@ import { compactAttachmentUrl, fileToLocalPreviewUrl, isQuotaError } from './mod
       await dbDelete('case_attachments', file.id);
     }
     return { total:files.length, storage:paths.length };
-  }
-
-  function beginButtonBusy(button, text='處理中...'){
-    if(!button || button.dataset.busy === '1') return false;
-    button.dataset.busy = '1';
-    button.dataset.originalText = button.textContent;
-    button.disabled = true;
-    button.textContent = text;
-    return true;
-  }
-
-  function endButtonBusy(button){
-    if(!button) return;
-    button.disabled = false;
-    button.textContent = button.dataset.originalText || button.textContent;
-    delete button.dataset.busy;
-    delete button.dataset.originalText;
   }
 
   async function addLog(caseRow, action, detail){
