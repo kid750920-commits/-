@@ -12,6 +12,7 @@ import { createDbApi } from './modules/db.js';
 import { createAutomationApi } from './modules/automation.js';
 import { createCaseFormApi } from './modules/case-form.js';
 import { createPermissionsApi } from './modules/permissions.js';
+import { createNotificationStore } from './modules/notifications.js';
 
 (() => {
   'use strict';
@@ -32,6 +33,12 @@ import { createPermissionsApi } from './modules/permissions.js';
     state,
     accountFromAuthEmail,
     byId
+  });
+  const notificationStore = createNotificationStore({
+    state,
+    notifyKey: NOTIFY_KEY,
+    currentRole,
+    nowIso
   });
   const {
     loadCloudData,
@@ -248,12 +255,12 @@ import { createPermissionsApi } from './modules/permissions.js';
   function currentUserId(){ return permissionsApi.currentUserId(); }
   function currentReplyRole(){ return permissionsApi.currentReplyRole(); }
   function currentAccountLabel(){ return permissionsApi.currentAccountLabel(); }
-  function notifyStoreKey(){ return `${NOTIFY_KEY}:${state.user?.id || state.profile?.display_name || currentRole()}`; }
-  function readNotifications(){ try{ return JSON.parse(localStorage.getItem(notifyStoreKey()) || '{}'); }catch(_){ return {}; } }
-  function saveNotifications(map){ localStorage.setItem(notifyStoreKey(), JSON.stringify(map || {})); }
-  function isNoticeRead(id){ return !!readNotifications()[id]; }
-  function markNoticeRead(id){ const map = readNotifications(); map[id] = nowIso(); saveNotifications(map); }
-  function markNoticeUnread(id){ const map = readNotifications(); delete map[id]; saveNotifications(map); }
+  function notifyStoreKey(){ return notificationStore.notifyStoreKey(); }
+  function readNotifications(){ return notificationStore.readNotifications(); }
+  function saveNotifications(map){ return notificationStore.saveNotifications(map); }
+  function isNoticeRead(id){ return notificationStore.isNoticeRead(id); }
+  function markNoticeRead(id){ return notificationStore.markNoticeRead(id); }
+  function markNoticeUnread(id){ return notificationStore.markNoticeUnread(id); }
   function roleName(role){ return permissionsApi.roleName(role); }
   function isAdmin(){ return permissionsApi.isAdmin(); }
   function isVendor(){ return permissionsApi.isVendor(); }
@@ -1365,24 +1372,7 @@ import { createPermissionsApi } from './modules/permissions.js';
 
 
   function clearCaseNotifications(caseId){
-    if(!caseId) return;
-    const relatedNoticeIds = new Set();
-    state.data.case_replies
-      .filter(r => r.case_id === caseId)
-      .forEach(r => relatedNoticeIds.add(`reply-${r.id}`));
-    state.data.case_logs
-      .filter(l => l.case_id === caseId)
-      .forEach(l => relatedNoticeIds.add(`restock-${l.id}`));
-
-    const map = readNotifications();
-    let changed = false;
-    Object.keys(map).forEach(id => {
-      if(id.includes(caseId) || relatedNoticeIds.has(id)){
-        delete map[id];
-        changed = true;
-      }
-    });
-    if(changed) saveNotifications(map);
+    return notificationStore.clearCaseNotifications(caseId);
   }
 
   function setNewCaseType(typeName){
