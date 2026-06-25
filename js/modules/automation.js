@@ -38,7 +38,11 @@ export function createAutomationApi({
       msg.includes('overdue_status') ||
       msg.includes('vendor_reply_status') ||
       msg.includes('last_vendor_reminder_date') ||
-      msg.includes('is_part_owner');
+      msg.includes('is_part_owner') ||
+      msg.includes('is_sf_owner') ||
+      msg.includes('is_container_owner') ||
+      msg.includes('is_lcd_owner') ||
+      msg.includes('is_bug_owner');
   }
 
   async function updateAutomationFields(c, patch){

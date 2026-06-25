@@ -622,26 +622,50 @@ import { createCaseFormApi } from './modules/case-form.js';
   function profileDisplayName(p){
     return p?.display_name || p?.username || accountFromAuthEmail(p?.email) || '';
   }
+  const MODULE_OWNER_FIELDS = [
+    { type:'順豐送修', field:'is_sf_owner', label:'順豐送修' },
+    { type:'貨櫃送修', field:'is_container_owner', label:'貨櫃送修' },
+    { type:PART_CASE_TYPE, field:'is_part_owner', label:'維修料品申請' },
+    { type:LCD_CASE_TYPE, field:'is_lcd_owner', label:'液晶面板申請' },
+    { type:'程式BUG回報', field:'is_bug_owner', label:'程式BUG回報' }
+  ];
+  function moduleOwnerConfig(type){
+    const normalized = normalizeCaseType(type);
+    return MODULE_OWNER_FIELDS.find(item => item.type === normalized) || null;
+  }
+  function moduleOwnerProfile(type){
+    const cfg = moduleOwnerConfig(type);
+    if(!cfg) return null;
+    return (state.data.profiles || []).find(p => p && p.is_active !== false && p[cfg.field] === true && !['vendor','viewer'].includes(p.role)) || null;
+  }
+  function moduleOwnerName(type){
+    return profileDisplayName(moduleOwnerProfile(type));
+  }
+  function moduleOwnerLabel(type){
+    return moduleOwnerConfig(type)?.label || normalizeCaseType(type) || '此模組';
+  }
   function partOwnerProfile(){
-    return (state.data.profiles || []).find(p => p && p.is_active !== false && p.is_part_owner === true && !['vendor','viewer'].includes(p.role)) || null;
+    return moduleOwnerProfile(PART_CASE_TYPE);
   }
   function partOwnerName(){
-    return profileDisplayName(partOwnerProfile());
+    return moduleOwnerName(PART_CASE_TYPE);
   }
-  function applyPartOwnerLock(){
-    const owner = partOwnerName();
-    const isPart = $('caseType')?.value === PART_CASE_TYPE;
+  function applyModuleOwnerLock(){
+    const caseType = $('caseType')?.value || '';
+    const owner = moduleOwnerName(caseType);
+    const label = moduleOwnerLabel(caseType);
     const input = $('ownerName');
     if(!input) return;
-    if(isPart && owner){
+    if(owner){
       input.value = owner;
       input.disabled = true;
-      input.title = '維修料品負責人由帳號權限設定指定';
+      input.title = `${label}主要負責人由帳號權限設定指定`;
     }else{
       input.disabled = false;
       input.title = '';
     }
   }
+  function applyPartOwnerLock(){ applyModuleOwnerLock(); }
 
   function renderRefSelects(){
     const vendorOptions = ['<option value="">未指定</option>'].concat(state.data.vendors.filter(v => v.is_active !== false).map(v => `<option value="${v.id}">${safe(v.vendor_name)}</option>`)).join('');
@@ -781,8 +805,8 @@ import { createCaseFormApi } from './modules/case-form.js';
       const case_type = $('caseType').value;
       const type = CASE_TYPES.find(t => t.value === case_type) || CASE_TYPES[0];
       const partReviewRequired = isPartCase(case_type);
-      const fixedPartOwner = partOwnerName();
-      if(partReviewRequired && !fixedPartOwner) return toast('請先到「帳號 / 廠商權限管理」設定維修料品負責人，再建立維修料品申請', 'bad');
+      const fixedModuleOwner = moduleOwnerName(case_type);
+      if(partReviewRequired && !fixedModuleOwner) return toast('請先到「帳號 / 廠商權限管理」設定維修料品主要負責人，再建立維修料品申請', 'bad');
       const reminderDays = Number($('reminderDays').value || type.defaultDays);
       const shipDate = $('shipDate').value;
       const due = $('dueDate').value || addDaysInput(shipDate ? new Date(shipDate) : new Date(), reminderDays);
@@ -796,7 +820,7 @@ import { createCaseFormApi } from './modules/case-form.js';
         location_id: $('locationId').value || null,
         vendor_id: $('vendorId').value || null,
         applicant_name: $('applicantName').value.trim() || currentName(),
-        owner_name: partReviewRequired ? fixedPartOwner : ($('ownerName').value.trim() || currentName()),
+        owner_name: fixedModuleOwner || $('ownerName').value.trim() || currentName(),
         tracking_no: $('trackingNo').value.trim(),
         return_tracking_no: $('returnTrackingNo').value.trim(),
         return_location_id: $('returnLocationId').value || null,
@@ -1650,6 +1674,12 @@ import { createCaseFormApi } from './modules/case-form.js';
     <div class="hint" style="margin-top:12px">線上版已由 config.js 內建雲端設定；一般使用者登入頁不顯示 URL / key，避免誤操作。</div>`;
   }
 
+  function moduleOwnerCheckboxes(p){
+    return MODULE_OWNER_FIELDS.map(item =>
+      `<label class="small" style="display:block;margin:2px 0"><input type="checkbox" data-profile-field="${item.field}" ${p[item.field]?'checked':''}> ${safe(item.label)}</label>`
+    ).join('');
+  }
+
   function renderAccountAdminList(){
     if(!$('accountAdminList')) return;
     if(!isAdmin()){
@@ -1669,7 +1699,7 @@ import { createCaseFormApi } from './modules/case-form.js';
     ];
     const vendorOptions = ['<option value="">未指定</option>'].concat(state.data.vendors.map(v => `<option value="${safe(v.id)}">${safe(v.vendor_name)}</option>`)).join('');
     const locationOptions = ['<option value="">未指定</option>'].concat(state.data.locations.map(l => `<option value="${safe(l.id)}">${safe(l.location_name)}</option>`)).join('');
-    $('accountAdminList').innerHTML = `<div class="table-wrap account-admin-wrap"><table><thead><tr><th>帳號</th><th>名稱</th><th>角色</th><th>廠商</th><th>地點</th><th>維修料品</th><th>狀態</th><th>操作</th></tr></thead><tbody>${profiles.map(p => {
+    $('accountAdminList').innerHTML = `<div class="table-wrap account-admin-wrap"><table><thead><tr><th>帳號</th><th>名稱</th><th>角色</th><th>廠商</th><th>地點</th><th>模組主要負責人</th><th>狀態</th><th>操作</th></tr></thead><tbody>${profiles.map(p => {
       const isSelf = p.id === currentUserId();
       const roleSelect = `<select data-profile-field="role" ${isSelf?'disabled':''}>${roleOptions.map(([value,label]) => `<option value="${value}" ${p.role===value?'selected':''}>${label}</option>`).join('')}</select>`;
       const vendorSelect = `<select data-profile-field="vendor_id">${vendorOptions.replace(`value="${safe(p.vendor_id || '')}"`, `value="${safe(p.vendor_id || '')}" selected`)}</select>`;
@@ -1680,11 +1710,11 @@ import { createCaseFormApi } from './modules/case-form.js';
         <td>${roleSelect}${isSelf?'<div class="small muted">不能調整自己角色</div>':''}</td>
         <td>${vendorSelect}</td>
         <td>${locationSelect}</td>
-        <td><label class="small"><input type="checkbox" data-profile-field="is_part_owner" ${p.is_part_owner?'checked':''}> 負責人</label></td>
+        <td>${moduleOwnerCheckboxes(p)}</td>
         <td>${p.is_active===false?'<span class="badge bad-b">停用</span>':'<span class="badge good-b">啟用</span>'}</td>
         <td><button class="btn small-btn" onclick="window.VCS.saveProfileRole('${safe(p.id)}')">儲存</button><button class="btn ghost small-btn" onclick="window.VCS.toggleProfileActive('${safe(p.id)}')" ${isSelf?'disabled title="不能停用自己"':''}>${p.is_active===false?'啟用':'停用'}</button></td>
       </tr>`;
-    }).join('')}</tbody></table></div><div class="hint" style="margin-top:12px">提醒：廠商帳號請將角色設為「廠商」，並選擇對應廠商；維修料品負責人同時間只建議設定一人，設定後維修料品申請會自動帶入且鎖定。</div>`;
+    }).join('')}</tbody></table></div><div class="hint" style="margin-top:12px">提醒：廠商帳號請將角色設為「廠商」，並選擇對應廠商；五大模組可分別指定主要負責人。設定後，建立或編輯該類案件時會自動帶入並鎖定內部負責人；維修料品申請仍會由維修料品主要負責人或管理者審核。</div>`;
   }
 
   async function saveProfileRole(id){
@@ -1698,30 +1728,33 @@ import { createCaseFormApi } from './modules/case-form.js';
       role:field('role')?.value || profile.role || 'operator',
       vendor_id:field('vendor_id')?.value || null,
       location_id:field('location_id')?.value || null,
-      is_part_owner:!!field('is_part_owner')?.checked,
       updated_at:nowIso()
     };
+    MODULE_OWNER_FIELDS.forEach(item => { patch[item.field] = !!field(item.field)?.checked; });
     if(id === currentUserId()) patch.role = profile.role;
-    if(patch.is_part_owner && ['vendor','viewer'].includes(patch.role)) return toast('維修料品負責人需為管理者或作業員', 'bad');
+    const selectedOwnerModules = MODULE_OWNER_FIELDS.filter(item => patch[item.field]);
+    if(selectedOwnerModules.length && ['vendor','viewer'].includes(patch.role)) return toast('模組主要負責人需為管理者或作業員', 'bad');
     try{
-      if(patch.is_part_owner){
-        const others = state.data.profiles.filter(p => p.id !== id && p.is_part_owner);
+      for(const item of selectedOwnerModules){
+        const others = state.data.profiles.filter(p => p.id !== id && p[item.field]);
         for(const other of others){
-          await dbUpdate('profiles', other.id, { is_part_owner:false, updated_at:nowIso() });
+          await dbUpdate('profiles', other.id, { [item.field]:false, updated_at:nowIso() });
         }
       }
       await dbUpdate('profiles', id, patch);
     }catch(err){
-      if(isSchemaMissingError(err) && String(err?.message || err).includes('is_part_owner')){
+      const ownerFieldMissing = MODULE_OWNER_FIELDS.some(item => String(err?.message || err).includes(item.field));
+      if(isSchemaMissingError(err) && ownerFieldMissing){
         const fallbackPatch = { ...patch };
-        delete fallbackPatch.is_part_owner;
+        MODULE_OWNER_FIELDS.forEach(item => { delete fallbackPatch[item.field]; });
         await dbUpdate('profiles', id, fallbackPatch);
         await refreshAll();
-        return toast('帳號權限已更新；維修料品負責人欄位尚未建立，請先套用 database/patches/2026-06-24-add-profile-part-owner-flag.sql', 'warn');
+        return toast('帳號權限已更新；模組主要負責人欄位尚未建立，請先套用 database/patches/2026-06-25-add-module-owner-flags.sql', 'warn');
       }
       throw err;
     }
-    await addLog(null, '調整帳號權限', `${profile.username || profile.email || id} → ${roleName(patch.role)}${patch.vendor_id ? ' / 廠商：' + vendorName(patch.vendor_id) : ''}${patch.is_part_owner ? ' / 維修料品負責人' : ''}`);
+    const moduleOwnerText = selectedOwnerModules.length ? ' / 模組負責：' + selectedOwnerModules.map(item => item.label).join('、') : '';
+    await addLog(null, '調整帳號權限', `${profile.username || profile.email || id} → ${roleName(patch.role)}${patch.vendor_id ? ' / 廠商：' + vendorName(patch.vendor_id) : ''}${moduleOwnerText}`);
     await refreshAll();
     toast('帳號權限已更新');
   }
@@ -1873,9 +1906,10 @@ import { createCaseFormApi } from './modules/case-form.js';
     const editAny = canEditCase(c);
     const statusOptions = STATUS.filter(s => editCore || VENDOR_STATUS.includes(s) || s === c.status).map(s => `<option ${s===c.status?'selected':''}>${safe(s)}</option>`).join('');
     const returnLocationOptions = locationSelectOptions(returnLocationId(c), '未指定 / 同送修地點');
-    const lockedPartOwner = isPartCase(c) ? partOwnerName() : '';
-    const ownerValue = lockedPartOwner || c.owner_name || '';
-    const ownerLocked = !!lockedPartOwner;
+    const lockedModuleOwner = moduleOwnerName(c.case_type);
+    const ownerValue = lockedModuleOwner || c.owner_name || '';
+    const ownerLocked = !!lockedModuleOwner;
+    const ownerHint = `${moduleOwnerLabel(c.case_type)}主要負責人由帳號權限設定指定。`;
     return `<div class="modal-tab-content active">
       ${automationStatusHtml(c)}
       <div class="grid-3">
@@ -1894,7 +1928,7 @@ import { createCaseFormApi } from './modules/case-form.js';
         <div class="field"><label>回寄地點</label><select id="mReturnLocationId" ${editAny?'':'disabled'}>${returnLocationOptions}</select></div>
       </div>
       <div class="grid-3">
-        <div class="field"><label>內部負責人</label><input id="mOwnerName" value="${safe(ownerValue)}" ${editCore && !ownerLocked?'':'disabled'}>${ownerLocked?'<div class="hint">維修料品負責人由帳號權限設定指定。</div>':''}</div>
+        <div class="field"><label>內部負責人</label><input id="mOwnerName" value="${safe(ownerValue)}" ${editCore && !ownerLocked?'':'disabled'}>${ownerLocked?`<div class="hint">${safe(ownerHint)}</div>`:''}</div>
       </div>
       ${reviewPanelHtml(c)}
       <div class="field"><label>問題描述 / 需求說明</label><textarea id="mDescription" ${editCore?'':'disabled'}>${safe(c.description||'')}</textarea></div>
@@ -2066,7 +2100,7 @@ import { createCaseFormApi } from './modules/case-form.js';
         tracking_no:$('mTrackingNo')?.value?.trim() || c.tracking_no,
         return_tracking_no:$('mReturnTrackingNo').value.trim(),
         return_location_id:$('mReturnLocationId')?.value || null,
-        owner_name:isPartCase(c) && partOwnerName() ? partOwnerName() : ($('mOwnerName')?.value?.trim() || c.owner_name),
+        owner_name:moduleOwnerName(c.case_type) || $('mOwnerName')?.value?.trim() || c.owner_name,
         description:$('mDescription')?.value?.trim() || c.description,
         closed_at: CLOSED_STATUS.includes(status) ? (c.closed_at || nowIso()) : null,
         updated_by:state.user?.id || null,
@@ -2415,9 +2449,9 @@ import { createCaseFormApi } from './modules/case-form.js';
       const returnLoc = mapByName(state.data.locations, 'location_name', get('回寄地點'));
       const dueDate = get('預計完成日') || addDaysInput(new Date(), type.defaultDays);
       const partReviewRequired = isPartCase(type.value);
-      const fixedPartOwner = partOwnerName();
-      if(partReviewRequired && !fixedPartOwner) return toast('請先設定維修料品負責人，再匯入維修料品申請', 'bad');
-      const row = { id:uid(), case_no:await nextCaseNo(type.prefix), case_type:type.value, title:get('案件標題') || 'CSV 匯入案件', status:partReviewRequired?'待負責人審核':'待整理', priority:get('優先度') || '一般', location_id:loc?.id || null, return_location_id:returnLoc?.id || null, vendor_id:vendor?.id || null, applicant_name:get('申請人') || currentName(), owner_name:partReviewRequired ? fixedPartOwner : (get('負責人') || currentName()), tracking_no:get('單號'), return_tracking_no:'', ship_date:null, vendor_received_date:null, due_date:dueDate, reminder_days:type.defaultDays, description:get('問題描述'), review_status:partReviewRequired?REVIEW_STATUS.pending:REVIEW_STATUS.approved, review_note:'', reviewed_by:null, reviewed_at:null, last_reply_at:null, closed_at:null, created_by:state.user?.id||null, updated_by:state.user?.id||null, created_at:nowIso(), updated_at:nowIso() };
+      const fixedModuleOwner = moduleOwnerName(type.value);
+      if(partReviewRequired && !fixedModuleOwner) return toast('請先設定維修料品主要負責人，再匯入維修料品申請', 'bad');
+      const row = { id:uid(), case_no:await nextCaseNo(type.prefix), case_type:type.value, title:get('案件標題') || 'CSV 匯入案件', status:partReviewRequired?'待負責人審核':'待整理', priority:get('優先度') || '一般', location_id:loc?.id || null, return_location_id:returnLoc?.id || null, vendor_id:vendor?.id || null, applicant_name:get('申請人') || currentName(), owner_name:fixedModuleOwner || get('負責人') || currentName(), tracking_no:get('單號'), return_tracking_no:'', ship_date:null, vendor_received_date:null, due_date:dueDate, reminder_days:type.defaultDays, description:get('問題描述'), review_status:partReviewRequired?REVIEW_STATUS.pending:REVIEW_STATUS.approved, review_note:'', reviewed_by:null, reviewed_at:null, last_reply_at:null, closed_at:null, created_by:state.user?.id||null, updated_by:state.user?.id||null, created_at:nowIso(), updated_at:nowIso() };
       const c = await dbInsert('cases', row);
       if(get('品項') || get('問題描述')) await dbInsert('case_items', { id:uid(), case_id:c.id, item_name:get('品項'), spec:get('規格'), sn:get('SN'), qty:Number(get('數量')||1), problem_desc:get('問題描述'), vendor_result:'', completed_qty:0, pending_qty:Number(get('數量')||1), created_at:nowIso() });
       await addLog(c, 'CSV 匯入案件', c.title);
