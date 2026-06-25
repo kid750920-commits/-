@@ -1336,6 +1336,7 @@ import { createNotificationStore } from './modules/notifications.js';
     const unread = allItems.filter(n => !n.read).length;
     const replyUnread = allItems.filter(n => n.kind === 'reply' && !n.read).length;
     const reviewUnread = allItems.filter(n => (n.kind === 'reviewRequest' || n.kind === 'reviewPending' || n.kind === 'reviewRejected') && !n.read).length;
+    const reviewPendingCount = allItems.filter(n => n.kind === 'reviewRequest' && !reviewNoticeAcknowledged(n.case)).length;
     const urgentUnread = allItems.filter(n => n.kind === 'urgent' && !n.read).length;
     const vendorNewUnread = allItems.filter(n => n.kind === 'vendorNewCase' && !n.read).length;
     const vendorReminderUnread = allItems.filter(n => n.kind === 'vendorReminder' && !n.read).length;
@@ -1344,6 +1345,7 @@ import { createNotificationStore } from './modules/notifications.js';
       cardHtml('未讀通知', unread, '新回覆與急件催覆', unread ? 'warn' : 'good'),
       cardHtml('新回覆', replyUnread, isVendor() ? '公司回覆需要查看' : '廠商回覆需要查看', replyUnread ? 'warn' : 'good'),
       cardHtml('審核通知', reviewUnread, '待審核或退回修正', reviewUnread ? 'warn' : 'good'),
+      cardHtml('待審核', reviewPendingCount, '審核者尚未讀取/處理', reviewPendingCount ? 'warn' : 'good'),
       cardHtml('急件催覆', urgentUnread, '急件/重大需盡快回覆', urgentUnread ? 'bad' : 'good'),
       cardHtml('廠商新案件', vendorNewUnread, '廠商需查看的新案件', vendorNewUnread ? 'warn' : 'good'),
       cardHtml('補料通知', restockUnread, '液晶面板補料對應', restockUnread ? 'warn' : 'good'),
