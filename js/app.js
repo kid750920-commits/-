@@ -10,6 +10,7 @@ import { createRealtimeSync } from './modules/realtime.js';
 import { createAccountAuthHelpers } from './modules/auth.js';
 import { createDbApi } from './modules/db.js';
 import { createAutomationApi } from './modules/automation.js';
+import { createCaseFormApi } from './modules/case-form.js';
 
 (() => {
   'use strict';
@@ -90,6 +91,14 @@ import { createAutomationApi } from './modules/automation.js';
     isViewer,
     vendorName,
     reminderBadge
+  });
+  const caseFormApi = createCaseFormApi({
+    state,
+    draftKey: DRAFT_KEY,
+    $,
+    onTypeChange,
+    renderItemsDraftSummary,
+    toast
   });
 
   function seedData(){
@@ -519,48 +528,11 @@ import { createAutomationApi } from './modules/automation.js';
     });
   }
 
-  function newCaseDraftFields(){
-    return ['caseType','caseTitle','priority','locationId','vendorId','ownerName','applicantName','shipDate','dueDate','trackingNo','returnTrackingNo','returnLocationId','reminderDays','description'];
-  }
-
-  function bindNewCaseDraft(){
-    newCaseDraftFields().forEach(id => {
-      const el = $(id);
-      if(!el) return;
-      el.addEventListener('input', saveNewCaseDraft);
-      el.addEventListener('change', saveNewCaseDraft);
-    });
-  }
-
-  function saveNewCaseDraft(){
-    const draft = {};
-    newCaseDraftFields().forEach(id => {
-      const el = $(id);
-      if(el) draft[id] = el.value;
-    });
-    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-  }
-
-  function restoreNewCaseDraft(){
-    if(state.draftRestored) return;
-    try{
-      const draft = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || 'null');
-      if(!draft) return;
-      newCaseDraftFields().forEach(id => {
-        const el = $(id);
-        if(el && draft[id] != null) el.value = draft[id];
-      });
-      state.draftRestored = true;
-      onTypeChange();
-      renderItemsDraftSummary();
-      toast('已還原尚未送出的新增案件草稿', 'warn');
-    }catch(_){}
-  }
-
-  function clearNewCaseDraft(){
-    sessionStorage.removeItem(DRAFT_KEY);
-    state.draftRestored = false;
-  }
+  function newCaseDraftFields(){ return caseFormApi.newCaseDraftFields(); }
+  function bindNewCaseDraft(){ return caseFormApi.bindNewCaseDraft(); }
+  function saveNewCaseDraft(){ return caseFormApi.saveNewCaseDraft(); }
+  function restoreNewCaseDraft(){ return caseFormApi.restoreNewCaseDraft(); }
+  function clearNewCaseDraft(){ return caseFormApi.clearNewCaseDraft(); }
 
   async function logout(){
     stopRealtimeSync();
