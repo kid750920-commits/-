@@ -988,7 +988,7 @@ import { createNotificationStore } from './modules/notifications.js';
 
   function visibleCases(){
     let cases = [...state.data.cases];
-    if(isVendor() && state.profile?.vendor_id) cases = cases.filter(c => c.vendor_id === state.profile.vendor_id);
+    if(isVendor() && state.profile?.vendor_id) cases = cases.filter(c => c.vendor_id === state.profile.vendor_id && isMainTableCase(c));
     if(currentRole() === 'viewer' && state.profile?.location_id) cases = cases.filter(c => c.location_id === state.profile.location_id || c.return_location_id === state.profile.location_id);
     return cases.sort((a,b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
   }
@@ -1216,7 +1216,7 @@ import { createNotificationStore } from './modules/notifications.js';
           id, kind:'reviewPending', title:'維修料品申請等待審核', case:c, created_at:c.updated_at || c.created_at,
           message:'你的維修料品申請已送出，正在等待維修料品負責人或管理者審核。審核通過後才會進入總表。',
           meta:`審核負責人：${c.owner_name || partOwnerName() || '-'}｜地點：${locationName(c.location_id)}｜${dateTimeText(c.created_at)}`,
-          read:!!reads[id]
+          read:true
         });
       }
       if(reviewRejected(c) && caseApplicantMatchesCurrentUser(c)){
@@ -1372,6 +1372,7 @@ import { createNotificationStore } from './modules/notifications.js';
   }
 
   function canAcknowledgeNotification(n){
+    if(n?.kind === 'reply') return true;
     return !caseCreatedByCurrentUser(n?.case);
   }
 
