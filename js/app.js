@@ -8,6 +8,7 @@ import { byId } from './modules/data-utils.js';
 import { createCloudDataApi } from './modules/cloud-data.js';
 import { createRealtimeSync } from './modules/realtime.js';
 import { createAccountAuthHelpers } from './modules/auth.js';
+import { createDbApi } from './modules/db.js';
 
 (() => {
   'use strict';
@@ -64,6 +65,16 @@ import { createAccountAuthHelpers } from './modules/auth.js';
     renderAll,
     refreshAll,
     updateNotificationUi
+  });
+  const dbApi = createDbApi({
+    state,
+    storageKey: STORAGE_KEY,
+    uid,
+    nowIso,
+    isQuotaError,
+    compactLocalDbForStorage,
+    $,
+    toast
   });
 
   function seedData(){
@@ -588,6 +599,7 @@ import { createAccountAuthHelpers } from './modules/auth.js';
   }
 
   function saveLocal(db=state.data){
+    return dbApi.saveLocal(db);
     try{
       localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
     }catch(err){
@@ -608,6 +620,7 @@ import { createAccountAuthHelpers } from './modules/auth.js';
   }
 
   async function dbInsert(table, row){
+    return dbApi.dbInsert(table, row);
     if(state.online){
       const { data, error } = await state.client.from(table).insert(row).select('*').single();
       if(error) throw error; return data;
@@ -616,6 +629,7 @@ import { createAccountAuthHelpers } from './modules/auth.js';
     state.data[table].unshift(newRow); saveLocal(); return newRow;
   }
   async function dbUpdate(table, id, patch){
+    return dbApi.dbUpdate(table, id, patch);
     if(state.online){
       const { data, error } = await state.client.from(table).update(patch).eq('id', id).select('*').single();
       if(error) throw error; return data;
@@ -626,6 +640,7 @@ import { createAccountAuthHelpers } from './modules/auth.js';
     saveLocal(); return list[idx];
   }
   async function dbDelete(table, id){
+    return dbApi.dbDelete(table, id);
     if(state.online){
       const { error } = await state.client.from(table).delete().eq('id', id);
       if(error) throw error; return true;
