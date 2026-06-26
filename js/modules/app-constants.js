@@ -34,9 +34,9 @@ export const CASE_TYPES = [
   { value:'程式BUG回報', prefix:'BUG', defaultDays:7, hint:'適合記錄機器設備程式 BUG、發生步驟、廠商修正版本與測試結果。' }
 ];
 
-export const STATUS = ['草稿','待負責人審核','審核退回','待整理','待送出廠商','已送出廠商','廠商已收件','廠商處理中','待廠商回覆','待我司確認','已完成','已退回/已到貨','結案','取消'];
+export const STATUS = ['草稿','待負責人審核','審核退回','待整理','待送出廠商','已送出廠商','廠商已收件','廠商處理中','待廠商回覆中','待我司確認','廠商已寄出','已完成','已退回/已到貨','結案','取消'];
 export const CLOSED_STATUS = ['結案','取消'];
-export const VENDOR_STATUS = ['廠商已收件','廠商處理中','待我司確認','已完成','已退回/已到貨'];
+export const VENDOR_STATUS = ['廠商已收件','廠商處理中','待我司確認','廠商已寄出','已完成','已退回/已到貨'];
 
 export const REVIEW_STATUS = {
   pending:'pending',

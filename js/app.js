@@ -20,6 +20,7 @@ import { csvEscape, downloadText, downloadXlsx, parseCsv, statRows } from './mod
 import { createBadgeHelpers } from './modules/badges.js';
 import { createReportHelpers } from './modules/report-utils.js';
 import { createCaseTypeHelpers } from './modules/case-utils.js';
+import { createStatusFlow } from './modules/status-flow.js';
 
 (() => {
   'use strict';
@@ -96,6 +97,19 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
     partCaseType: PART_CASE_TYPE,
     reviewStatusValues: REVIEW_STATUS
   });
+  const {
+    deriveCaseStatus,
+    shouldAutoStatus,
+    shouldMarkVendorViewed,
+    vendorViewedStatus
+  } = createStatusFlow({
+    closedStatus: CLOSED_STATUS,
+    reviewStatusValues: REVIEW_STATUS,
+    reviewStatus,
+    needsReview,
+    reviewRejected
+  });
+  const isWaitVendorReplyStatus = status => ['待廠商回覆','待廠商回覆中'].includes(String(status || ''));
   const {
     typeBadge,
     statusBadge,
@@ -759,6 +773,7 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
       const reminderDays = Number($('reminderDays').value || type.defaultDays);
       const shipDate = $('shipDate').value;
       const due = $('dueDate').value || addDaysInput(shipDate ? new Date(shipDate) : new Date(), reminderDays);
+      const draftItems = collectItems();
       const row = {
         id: uid(),
         case_no: await nextCaseNo(type.prefix),
@@ -789,6 +804,7 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
         created_at: nowIso(),
         updated_at: nowIso()
       };
+      row.status = deriveCaseStatus(row, { items:draftItems, currentStatus:row.status });
       if(!row.title) return toast('請輸入案件標題', 'bad');
       const existingLcdCase = normalizeCaseType(case_type) === LCD_CASE_TYPE ? findExistingLcdCaseByTitle(row.title) : null;
       if(existingLcdCase){
@@ -815,7 +831,7 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
       }
       let insertedItems = 0;
       let updatedItems = 0;
-      for(const item of collectItems()){
+      for(const item of draftItems){
         const { _files, ...itemRow } = item;
         const existingItem = existingLcdCase ? findExistingItemBySn(existingLcdCase.id, itemRow.sn) : null;
         if(existingItem){
@@ -839,6 +855,30 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
         }
       }
       if(normalizeCaseType(case_type) !== LCD_CASE_TYPE) await uploadFiles(created.id, $('attachments').files);
+      if(existingLcdCase){
+        const existingItems = state.data.case_items.filter(i => i.case_id === existingLcdCase.id);
+        const draftItemRows = draftItems.map(({ _files, ...itemRow }) => ({ ...itemRow, case_id:existingLcdCase.id }));
+        const statusCase = {
+          ...existingLcdCase,
+          vendor_id:row.vendor_id || existingLcdCase.vendor_id,
+          location_id:row.location_id || existingLcdCase.location_id,
+          return_location_id:row.return_location_id || existingLcdCase.return_location_id,
+          owner_name:row.owner_name || existingLcdCase.owner_name,
+          applicant_name:row.applicant_name || existingLcdCase.applicant_name,
+          tracking_no:row.tracking_no || existingLcdCase.tracking_no,
+          return_tracking_no:row.return_tracking_no || existingLcdCase.return_tracking_no,
+          ship_date:row.ship_date || existingLcdCase.ship_date,
+          due_date:row.due_date || existingLcdCase.due_date
+        };
+        await dbUpdate('cases', existingLcdCase.id, {
+          status:deriveCaseStatus(statusCase, {
+            items:existingItems.concat(draftItemRows),
+            currentStatus:existingLcdCase.status
+          }),
+          updated_by:state.user?.id || null,
+          updated_at:nowIso()
+        });
+      }
       await addLog(created, existingLcdCase ? '液晶同標題追加/更新' : '新增案件', existingLcdCase ? `同標題「${row.title}」追加 ${insertedItems} 筆、更新 ${updatedItems} 筆液晶資料` : `建立 ${created.case_type}：${created.title}`);
       clearNewCaseDraft();
       $('caseForm').reset();
@@ -967,10 +1007,10 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
     const soon = due && open && daysToDue >= 0 && daysToDue <= 3;
     const last = new Date(latestCaseActivityAt(c));
     const noReplyDays = Math.max(0, daysBetween(last, new Date()));
-    const noReply = open && c.vendor_id && noReplyDays >= Number(c.reminder_days || 7) && !['已完成','已退回/已到貨','結案','取消'].includes(c.status);
+    const noReply = open && c.vendor_id && noReplyDays >= Number(c.reminder_days || 7) && !['廠商已寄出','已完成','已退回/已到貨','結案','取消'].includes(c.status);
     const notReceived = open && c.ship_date && !c.vendor_received_date && daysBetween(new Date(c.ship_date), new Date()) >= 3;
     const urgentThreshold = c.priority === '重大' ? 1 : c.priority === '急件' ? 2 : null;
-    const urgentNeedReply = open && !!urgentThreshold && c.vendor_id && (c.status === '待廠商回覆' || noReplyDays >= urgentThreshold);
+    const urgentNeedReply = open && !!urgentThreshold && c.vendor_id && (isWaitVendorReplyStatus(c.status) || noReplyDays >= urgentThreshold);
     return { open, daysToDue, overdueDays, soon, overdue:overdueDays>0, noReplyDays, noReply, notReceived, urgentThreshold, urgentNeedReply };
   }
 
@@ -1113,12 +1153,12 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
     const open = cases.filter(c => !CLOSED_STATUS.includes(c.status));
     const overdue = cases.filter(c => calcCase(c).overdue);
     const urgent = cases.filter(c => calcCase(c).urgentNeedReply || c.priority === '重大' || c.priority === '急件');
-    const pendingVendor = cases.filter(c => c.status === '待廠商回覆' || calcCase(c).noReply);
+    const pendingVendor = cases.filter(c => isWaitVendorReplyStatus(c.status) || calcCase(c).noReply);
     $('caseListStats').innerHTML = [
       cardHtml('符合條件', cases.length, '目前篩選結果', 'blue'),
       cardHtml('未結案', open.length, '未結案與未取消', 'blue'),
       cardHtml('逾期', overdue.length, '超過預計完成日', overdue.length?'bad':'good'),
-      cardHtml('待廠商回覆', pendingVendor.length, '需要廠商回覆/更新', pendingVendor.length?'warn':'good'),
+      cardHtml('待廠商回覆中', pendingVendor.length, '需要廠商回覆/更新', pendingVendor.length?'warn':'good'),
       cardHtml('急件/重大', urgent.length, '優先處理案件', urgent.length?'bad':'good')
     ].join('');
   }
@@ -1395,7 +1435,7 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
     if(isVendor() && state.profile?.vendor_id) cases = cases.filter(c => c.vendor_id === state.profile.vendor_id);
     else if(vendor) cases = cases.filter(c => c.vendor_id === vendor);
     if(status) cases = cases.filter(c => c.status === status);
-    if(need) cases = cases.filter(c => { const x = calcCase(c); return x.urgentNeedReply || x.overdue || x.noReply || c.status === '待廠商回覆'; });
+    if(need) cases = cases.filter(c => { const x = calcCase(c); return x.urgentNeedReply || x.overdue || x.noReply || isWaitVendorReplyStatus(c.status); });
     return cases;
   }
 
@@ -1403,8 +1443,8 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
     if(!$('vendorPortalList')) return;
     const cases = vendorPortalCases();
     const open = cases.filter(c => !CLOSED_STATUS.includes(c.status));
-    const need = cases.filter(c => { const x = calcCase(c); return x.urgentNeedReply || x.overdue || x.noReply || c.status === '待廠商回覆'; });
-    const done = cases.filter(c => ['已完成','已退回/已到貨','結案'].includes(c.status));
+    const need = cases.filter(c => { const x = calcCase(c); return x.urgentNeedReply || x.overdue || x.noReply || isWaitVendorReplyStatus(c.status); });
+    const done = cases.filter(c => ['廠商已寄出','已完成','已退回/已到貨','結案'].includes(c.status));
     $('vendorPortalStats').innerHTML = [
       cardHtml('廠商案件', cases.length, '目前可查看案件', 'blue'),
       cardHtml('未結案', open.length, '尚未完成', 'blue'),
@@ -1496,11 +1536,11 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
   }
 
   function followupCases(){
-    let arr = visibleMainCases().map(c => ({c, calc:calcCase(c)})).filter(x => x.calc.urgentNeedReply || x.calc.overdue || x.calc.noReply || x.c.status === '待廠商回覆');
+    let arr = visibleMainCases().map(c => ({c, calc:calcCase(c)})).filter(x => x.calc.urgentNeedReply || x.calc.overdue || x.calc.noReply || isWaitVendorReplyStatus(x.c.status));
     const f = state.followupFilter;
     if(f === 'urgent') arr = arr.filter(x => x.calc.urgentNeedReply || x.c.priority === '急件' || x.c.priority === '重大');
     if(f === 'overdue') arr = arr.filter(x => x.calc.overdue);
-    if(f === 'noReply') arr = arr.filter(x => x.calc.noReply || x.c.status === '待廠商回覆');
+    if(f === 'noReply') arr = arr.filter(x => x.calc.noReply || isWaitVendorReplyStatus(x.c.status));
     return arr.sort((a,b)=> (Number(b.calc.urgentNeedReply)-Number(a.calc.urgentNeedReply)) || (b.calc.overdueDays-a.calc.overdueDays) || (b.calc.noReplyDays-a.calc.noReplyDays));
   }
 
@@ -1764,10 +1804,34 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
     if(!c) return;
     state.selectedCase = c;
     if(tab === 'replies') markCaseRepliesRead(id);
-    $('modalTitle').textContent = `${c.case_no}｜${c.title}`;
-    $('modalSub').innerHTML = `${typeBadge(c.case_type)} ${statusBadge(c.status)} ${priorityBadge(c.priority)} ${reviewBadge(c)} <span class="muted">廠商：${safe(vendorName(c.vendor_id))}｜送修地點：${safe(locationName(c.location_id))}｜回寄地點：${safe(returnLocationName(c))}</span>`;
+    syncVendorCaseViewed(c);
+    const displayCase = state.selectedCase || c;
+    $('modalTitle').textContent = `${displayCase.case_no}｜${displayCase.title}`;
+    $('modalSub').innerHTML = `${typeBadge(displayCase.case_type)} ${statusBadge(displayCase.status)} ${priorityBadge(displayCase.priority)} ${reviewBadge(displayCase)} <span class="muted">廠商：${safe(vendorName(displayCase.vendor_id))}｜送修地點：${safe(locationName(displayCase.location_id))}｜回寄地點：${safe(returnLocationName(displayCase))}</span>`;
     $('caseModal').classList.remove('hidden');
     renderCaseModal(tab);
+  }
+
+  async function syncVendorCaseViewed(c){
+    if(!isVendor()) return;
+    if(state.profile?.vendor_id && c.vendor_id !== state.profile.vendor_id) return;
+    if(!shouldMarkVendorViewed(c)) return;
+    try{
+      const status = vendorViewedStatus();
+      state.data.cases = state.data.cases.map(row => row.id === c.id ? { ...row, status, vendor_received_date:row.vendor_received_date || toLocalDateInput(new Date()), updated_at:nowIso(), updated_by:currentUserId() || row.updated_by } : row);
+      state.selectedCase = state.data.cases.find(row => row.id === c.id) || c;
+      await dbUpdate('cases', c.id, {
+        status,
+        vendor_received_date:c.vendor_received_date || toLocalDateInput(new Date()),
+        updated_at:nowIso(),
+        updated_by:currentUserId() || null
+      });
+      await addLog(c, '廠商讀取案件', `${currentName()} 已讀取案件，狀態同步為${status}`);
+      updateNotificationUi();
+      renderAll();
+    }catch(err){
+      console.error(err);
+    }
   }
   function closeModal(){ $('caseModal').classList.add('hidden'); state.selectedCase = null; }
 
@@ -1821,7 +1885,8 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
   function modalBasic(c){
     const editCore = canEditCore();
     const editAny = canEditCase(c);
-    const statusOptions = STATUS.filter(s => editCore || VENDOR_STATUS.includes(s) || s === c.status).map(s => `<option ${s===c.status?'selected':''}>${safe(s)}</option>`).join('');
+    const modalStatusList = STATUS.includes(c.status) ? STATUS : STATUS.concat(c.status);
+    const statusOptions = modalStatusList.filter(s => editCore || VENDOR_STATUS.includes(s) || s === c.status).map(s => `<option ${s===c.status?'selected':''}>${safe(s)}</option>`).join('');
     const returnLocationOptions = locationSelectOptions(returnLocationId(c), '未指定 / 同送修地點');
     const lockedModuleOwner = moduleOwnerName(c.case_type);
     const ownerValue = lockedModuleOwner || c.owner_name || '';
@@ -2006,9 +2071,9 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
     if(!beginButtonBusy(busyButton, '儲存中...')) return;
     toast('正在儲存案件...', 'warn');
     try{
-      const status = $('mStatus').value;
+      const selectedStatus = $('mStatus').value;
       const patch = {
-        status,
+        status:selectedStatus,
         priority:$('mPriority')?.value || c.priority,
         due_date:$('mDueDate').value || null,
         ship_date:$('mShipDate')?.value || null,
@@ -2019,12 +2084,18 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
         return_location_id:$('mReturnLocationId')?.value || null,
         owner_name:moduleOwnerName(c.case_type) || $('mOwnerName')?.value?.trim() || c.owner_name,
         description:$('mDescription')?.value?.trim() || c.description,
-        closed_at: CLOSED_STATUS.includes(status) ? (c.closed_at || nowIso()) : null,
+        closed_at: CLOSED_STATUS.includes(selectedStatus) ? (c.closed_at || nowIso()) : null,
         updated_by:state.user?.id || null,
         updated_at:nowIso()
       };
+      const items = state.data.case_items.filter(i => i.case_id === c.id);
+      const statusCandidate = { ...c, ...patch };
+      if(shouldAutoStatus(c, selectedStatus)){
+        patch.status = deriveCaseStatus(statusCandidate, { items, currentStatus:selectedStatus });
+        patch.closed_at = CLOSED_STATUS.includes(patch.status) ? (c.closed_at || nowIso()) : null;
+      }
       const updated = await dbUpdate('cases', c.id, patch);
-      await addLog(updated || c, '修改案件', `更新狀態/時效資料：${status}`);
+      await addLog(updated || c, '修改案件', `更新狀態/時效資料：${patch.status}`);
       await refreshAll();
       state.selectedCase = state.data.cases.find(x => x.id === c.id);
       openCase(c.id);
@@ -2044,12 +2115,14 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
   }
   async function approvePartReview(c){
     if(!canReviewCase(c)) return toast('只有指定負責人或管理者可以審核', 'bad');
+    const approvedCase = { ...c, review_status:REVIEW_STATUS.approved, status:'待整理' };
+    const items = state.data.case_items.filter(i => i.case_id === c.id);
     const patch = {
       review_status:REVIEW_STATUS.approved,
       review_note:'',
       reviewed_by:currentName(),
       reviewed_at:nowIso(),
-      status:'待整理',
+      status:deriveCaseStatus(approvedCase, { items, currentStatus:'待整理' }),
       updated_by:state.user?.id || null,
       updated_at:nowIso()
     };
@@ -2141,6 +2214,13 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
         await dbInsert('case_items', itemRow);
         await uploadFiles(c.id, _files, itemRow.id);
       }
+      const existingItems = state.data.case_items.filter(i => i.case_id === c.id);
+      const nextItems = existingItems.concat(rows.map(({ _files, _hasData, ...itemRow }) => itemRow));
+      await dbUpdate('cases', c.id, {
+        status:deriveCaseStatus(c, { items:nextItems, currentStatus:c.status }),
+        updated_at:nowIso(),
+        updated_by:currentUserId() || null
+      });
       await addLog(c, '新增品項', `新增 ${rows.length} 筆品項明細`);
       await refreshAll(); state.selectedCase = state.data.cases.find(x => x.id === c.id); renderCaseModal('items'); toast('品項已新增');
     }catch(err){
@@ -2176,7 +2256,15 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
       const snList = items.map(i => i.sn || i.item_name || i.id).join('、');
       const detail = `液晶面板補料登記：${items.length} 筆｜貨櫃：${container}${batch ? '｜批次：' + batch : ''}｜SN：${snList}${note ? '｜備註：' + note : ''}`;
       await addLog(c, '補料登記通知', detail);
-      await dbUpdate('cases', c.id, { last_reply_at:nowIso(), updated_at:nowIso(), updated_by:currentUserId() || null });
+      const nextItems = state.data.case_items
+        .filter(i => i.case_id === c.id)
+        .map(i => selectedIds.includes(i.id) ? { ...i, completed_qty:Number(i.qty || 1), pending_qty:0 } : i);
+      await dbUpdate('cases', c.id, {
+        last_reply_at:nowIso(),
+        status:deriveCaseStatus(c, { items:nextItems, currentStatus:c.status }),
+        updated_at:nowIso(),
+        updated_by:currentUserId() || null
+      });
       await refreshAll();
       state.selectedCase = state.data.cases.find(x => x.id === c.id);
       renderCaseModal('items');
@@ -2229,7 +2317,12 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
         toast('回覆已新增；提醒：Supabase case_replies 欄位尚未更新，請補跑新版 SQL 才能完整記錄回覆帳號', 'warn');
       }
       markNoticeRead(`reply-${reply?.id || row.id}`);
-      await dbUpdate('cases', c.id, { last_reply_at:nowIso(), status: role === '廠商' && c.status === '待廠商回覆' ? '廠商處理中' : c.status, updated_at:nowIso(), updated_by:actorId || null });
+      await dbUpdate('cases', c.id, {
+        last_reply_at:nowIso(),
+        status:deriveCaseStatus(c, { replyRole:role, appRole:currentRole(), currentStatus:c.status }),
+        updated_at:nowIso(),
+        updated_by:actorId || null
+      });
       await addLog(c, '新增回覆', `${role}｜${currentName()} 回覆：${msg.slice(0,60)}`);
       await refreshAll(); state.selectedCase = state.data.cases.find(x => x.id === c.id); renderCaseModal('replies'); updateNotificationUi(); toast('回覆已新增，相關帳號登入後才會看到自己的新回覆通知');
     }catch(err){
@@ -2304,8 +2397,13 @@ import { createCaseTypeHelpers } from './modules/case-utils.js';
       const fixedModuleOwner = moduleOwnerName(type.value);
       if(partReviewRequired && !fixedModuleOwner) return toast('請先設定維修料品主要負責人，再匯入維修料品申請', 'bad');
       const row = { id:uid(), case_no:await nextCaseNo(type.prefix), case_type:type.value, title:get('案件標題') || 'CSV 匯入案件', status:partReviewRequired?'待負責人審核':'待整理', priority:get('優先度') || '一般', location_id:loc?.id || null, return_location_id:returnLoc?.id || null, vendor_id:vendor?.id || null, applicant_name:get('申請人') || currentName(), owner_name:fixedModuleOwner || get('負責人') || currentName(), tracking_no:get('單號'), return_tracking_no:'', ship_date:null, vendor_received_date:null, due_date:dueDate, reminder_days:type.defaultDays, description:get('問題描述'), review_status:partReviewRequired?REVIEW_STATUS.pending:REVIEW_STATUS.approved, review_note:'', reviewed_by:null, reviewed_at:null, last_reply_at:null, closed_at:null, created_by:state.user?.id||null, updated_by:state.user?.id||null, created_at:nowIso(), updated_at:nowIso() };
+      const itemQty = Number(get('數量')||1);
+      row.status = deriveCaseStatus(row, {
+        items:get('品項') || get('問題描述') ? [{ qty:itemQty, completed_qty:0, pending_qty:itemQty }] : [],
+        currentStatus:row.status
+      });
       const c = await dbInsert('cases', row);
-      if(get('品項') || get('問題描述')) await dbInsert('case_items', { id:uid(), case_id:c.id, item_name:get('品項'), spec:get('規格'), sn:get('SN'), qty:Number(get('數量')||1), problem_desc:get('問題描述'), vendor_result:'', completed_qty:0, pending_qty:Number(get('數量')||1), created_at:nowIso() });
+      if(get('品項') || get('問題描述')) await dbInsert('case_items', { id:uid(), case_id:c.id, item_name:get('品項'), spec:get('規格'), sn:get('SN'), qty:itemQty, problem_desc:get('問題描述'), vendor_result:'', completed_qty:0, pending_qty:itemQty, created_at:nowIso() });
       await addLog(c, 'CSV 匯入案件', c.title);
       createdCount++;
     }

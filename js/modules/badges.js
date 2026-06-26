@@ -17,9 +17,9 @@ export function createBadgeHelpers({
 
   function statusBadge(status){
     const cls = closedStatus.includes(status) ? 'good-b'
-      : status === '待廠商回覆' || status === '待負責人審核' ? 'warn-b'
+      : status === '待廠商回覆' || status === '待廠商回覆中' || status === '待負責人審核' ? 'warn-b'
       : status === '審核退回' || status === '取消' ? 'bad-b'
-      : status === '已完成' ? 'good-b'
+      : status === '廠商已寄出' || status === '已完成' ? 'good-b'
       : 'blue-b';
     return `<span class="badge ${cls}">${safe(status || '-')}</span>`;
   }
