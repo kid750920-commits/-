@@ -4,7 +4,7 @@ import { createInitialState, emptyData } from './modules/state.js';
 import { $, qsa } from './modules/dom.js';
 import { addDaysInput, compactDate, dateText, dateTimeText, daysBetween, nowIso, toDateInput, toLocalDateInput, todayStart } from './modules/date-utils.js';
 import { safe } from './modules/html.js';
-import { byId } from './modules/data-utils.js';
+import { byId, groupBy } from './modules/data-utils.js';
 import { createCloudDataApi } from './modules/cloud-data.js';
 import { createRealtimeSync } from './modules/realtime.js';
 import { createAccountAuthHelpers } from './modules/auth.js';
@@ -18,6 +18,7 @@ import { beginButtonBusy, endButtonBusy } from './modules/ui-state.js';
 import { buildRestockText, normalizedTitle, parseRestockInfo } from './modules/lcd-utils.js';
 import { csvEscape, downloadText, downloadXlsx, parseCsv, statRows } from './modules/export-utils.js';
 import { createBadgeHelpers } from './modules/badges.js';
+import { createReportHelpers } from './modules/report-utils.js';
 
 (() => {
   'use strict';
@@ -109,6 +110,15 @@ import { createBadgeHelpers } from './modules/badges.js';
     isViewer,
     vendorName,
     reminderBadge
+  });
+  const {
+    groupStats,
+    statTable
+  } = createReportHelpers({
+    safe,
+    closedStatus: CLOSED_STATUS,
+    calcCase,
+    groupBy
   });
   const caseFormApi = createCaseFormApi({
     state,
@@ -1556,24 +1566,6 @@ import { createBadgeHelpers } from './modules/badges.js';
     $('reportTypeTable').innerHTML = statTable(groupStats(cases, c => normalizeCaseType(c.case_type) || '未分類'), '案件類型');
     $('reportLocationTable').innerHTML = statTable(groupStats(cases, c => locationName(c.location_id)), '地點');
     $('reportOwnerTable').innerHTML = statTable(groupStats(cases, c => c.owner_name || '未指定'), '負責人');
-  }
-
-  function groupStats(cases, keyFn){
-    const groups = groupBy(cases, keyFn);
-    return Object.entries(groups).map(([name,list]) => ({
-      name, total:list.length,
-      open:list.filter(c=>!CLOSED_STATUS.includes(c.status)).length,
-      overdue:list.filter(c=>calcCase(c).overdue).length,
-      urgent:list.filter(c=>calcCase(c).urgentNeedReply || c.priority==='重大' || c.priority==='急件').length
-    })).sort((a,b)=>b.total-a.total);
-  }
-
-  function statTable(rows, label){
-    return `<div class="table-wrap"><table><thead><tr><th>${safe(label)}</th><th>總數</th><th>未結</th><th>逾期</th><th>急件/重大</th></tr></thead><tbody>${rows.map(r=>`<tr><td><b>${safe(r.name)}</b></td><td>${r.total}</td><td>${r.open}</td><td>${r.overdue}</td><td>${r.urgent}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">尚無資料</td></tr>'}</tbody></table></div>`;
-  }
-
-  function groupBy(list, fn){
-    return list.reduce((acc,item) => { const key = fn(item) || '未指定'; (acc[key] ||= []).push(item); return acc; }, {});
   }
 
   function renderSettings(){
