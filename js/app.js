@@ -1455,7 +1455,7 @@ import { createReportHelpers } from './modules/report-utils.js';
     const loc = $('locationReviewLocation')?.value || '';
     const status = $('locationReviewStatus')?.value || '';
     const kw = ($('locationReviewKeyword')?.value || '').trim().toLowerCase();
-    let cases = visibleCases().filter(c => c.case_type === '維修料品申請');
+    let cases = visibleCases().filter(isPartCase);
     if(loc) cases = cases.filter(c => c.location_id === loc);
     if(status) cases = cases.filter(c => c.status === status);
     if(kw){
