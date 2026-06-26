@@ -80,6 +80,22 @@ import { createBadgeHelpers } from './modules/badges.js';
     $,
     toast
   });
+  const {
+    typeBadge,
+    statusBadge,
+    reviewBadge,
+    reminderBadge,
+    priorityBadge,
+    urgentBadge,
+    priorityRowClass
+  } = createBadgeHelpers({
+    safe,
+    closedStatus: CLOSED_STATUS,
+    reviewStatusValues: REVIEW_STATUS,
+    normalizeCaseType,
+    isPartCase,
+    reviewStatus
+  });
   const automationApi = createAutomationApi({
     state,
     uid,
@@ -101,22 +117,6 @@ import { createBadgeHelpers } from './modules/badges.js';
     onTypeChange,
     renderItemsDraftSummary,
     toast
-  });
-  const {
-    typeBadge,
-    statusBadge,
-    reviewBadge,
-    reminderBadge,
-    priorityBadge,
-    urgentBadge,
-    priorityRowClass
-  } = createBadgeHelpers({
-    safe,
-    closedStatus: CLOSED_STATUS,
-    reviewStatusValues: REVIEW_STATUS,
-    normalizeCaseType,
-    isPartCase,
-    reviewStatus
   });
 
   function seedData(){
