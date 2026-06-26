@@ -14,6 +14,8 @@ export function createDashboardRenderer({
   vendorName,
   dateText,
   dateTimeText,
+  toLocalDateInput,
+  isAdmin,
   isWaitVendorReplyStatus,
   typeBadge,
   statusBadge,
@@ -39,7 +41,8 @@ export function createDashboardRenderer({
       cardHtml('未結案', open.length, '所有尚未結案與取消的案件', 'blue'),
       cardHtml('新回覆通知', unreadReplies, '尚未查看的公司/廠商回覆', unreadReplies ? 'warn' : 'good'),
       cardHtml('廠商未回覆提醒', vendorReminders, '每日自動產生提醒', vendorReminders ? 'bad' : 'good'),
-      cardHtml('已逾期', overdue.length, '超過預計完成日', 'bad')
+      cardHtml('已逾期', overdue.length, '超過預計完成日', 'bad'),
+      ...adminDailyCards(cases)
     ].join('');
     const urgent = [...urgentNeedReply, ...overdue, ...soon, ...noReply].filter(uniqueById).slice(0, 8);
     $('dashboardUrgent').innerHTML = urgent.length ? urgent.map(quickCaseRow).join('') : '<div class="empty">目前沒有需要追蹤的案件</div>';
@@ -53,6 +56,19 @@ export function createDashboardRenderer({
 
   function uniqueById(value, index, self){
     return self.findIndex(row => row.id === value.id) === index;
+  }
+
+  function adminDailyCards(cases){
+    if(!isAdmin()) return [];
+    const today = toLocalDateInput(new Date());
+    const todayCases = cases.filter(caseRow => toLocalDateInput(caseRow.created_at || caseRow.updated_at) === today);
+    const cards = caseTypes.map(type => {
+      const count = todayCases.filter(caseRow => normalizeCaseType(caseRow.case_type) === type.value).length;
+      return cardHtml(`今日${type.value}`, count, '今日新增案件', count ? 'warn' : 'good');
+    });
+    const restockCount = state.data.case_logs.filter(log => log.action === '補料登記通知' && toLocalDateInput(log.created_at) === today).length;
+    cards.push(cardHtml('今日補料', restockCount, '今日補料登記筆數', restockCount ? 'warn' : 'good'));
+    return cards;
   }
 
   function quickCaseRow(caseRow){
