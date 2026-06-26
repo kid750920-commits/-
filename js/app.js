@@ -279,6 +279,9 @@ import { createBadgeHelpers } from './modules/badges.js';
   }
 
   function getConfig(){
+    if(LOCK_SUPABASE_CONFIG){
+      return { url: DEFAULT_SUPABASE_URL, key: DEFAULT_SUPABASE_ANON_KEY };
+    }
     const saved = JSON.parse(localStorage.getItem(CONFIG_KEY) || '{}');
     return { url: saved.url || DEFAULT_SUPABASE_URL, key: saved.key || DEFAULT_SUPABASE_ANON_KEY };
   }
