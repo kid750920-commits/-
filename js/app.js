@@ -489,7 +489,33 @@ import { createWorkflowRenderer } from './modules/workflow-render.js';
   function initSupabase(url, key){
     if(!window.supabase) throw new Error('Supabase SDK 載入失敗，請確認網路可連線。');
     stopRealtimeSync();
-    state.client = window.supabase.createClient(url, key);
+    state.authSubscription?.unsubscribe?.();
+    state.client = window.supabase.createClient(url, key, {
+      auth:{
+        persistSession:true,
+        autoRefreshToken:true,
+        detectSessionInUrl:true,
+        storage:window.localStorage
+      }
+    });
+    const { data } = state.client.auth.onAuthStateChange((event, session) => {
+      if(!['INITIAL_SESSION','SIGNED_IN','TOKEN_REFRESHED'].includes(event)) return;
+      if(!session?.user || state.user?.id === session.user.id) return;
+      setTimeout(async () => {
+        try{
+          if(state.authRestoreInProgress || state.user?.id === session.user.id) return;
+          state.authRestoreInProgress = true;
+          state.user = session.user;
+          await loadProfile();
+          await enterApp(true);
+        }catch(err){
+          console.error(err);
+        }finally{
+          state.authRestoreInProgress = false;
+        }
+      }, 0);
+    });
+    state.authSubscription = data?.subscription || null;
   }
 
   function bindLoginEvents(){
