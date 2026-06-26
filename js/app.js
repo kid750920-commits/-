@@ -969,6 +969,11 @@ import { createReportHelpers } from './modules/report-utils.js';
   function visibleMainCases(){
     return visibleCases().filter(isMainTableCase);
   }
+  function isLocationReviewCase(c){
+    return isPartCase(c)
+      || String(c?.case_no || '').startsWith('PART-')
+      || Object.values(REVIEW_STATUS).includes(c?.review_status);
+  }
 
   function calcCase(c){
     const due = c.due_date ? new Date(c.due_date) : null;
@@ -1455,7 +1460,7 @@ import { createReportHelpers } from './modules/report-utils.js';
     const loc = $('locationReviewLocation')?.value || '';
     const status = $('locationReviewStatus')?.value || '';
     const kw = ($('locationReviewKeyword')?.value || '').trim().toLowerCase();
-    let cases = visibleCases().filter(isPartCase);
+    let cases = visibleCases().filter(isLocationReviewCase);
     if(loc) cases = cases.filter(c => c.location_id === loc);
     if(status) cases = cases.filter(c => c.status === status);
     if(kw){
