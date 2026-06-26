@@ -25,24 +25,24 @@
           <div class="hero-chip">維修料品申請<br><span class="muted small">地點申請、照片、廠商回覆</span></div>
           <div class="hero-chip">液晶面板與 BUG<br><span class="muted small">保固申請、SN、損壞照片</span></div>
         </div>
-        <div class="hint" id="setupHint" style="margin-top:24px">正式使用前，請先套用 <b>database/patches</b> 內必要 SQL，再於 Vercel 設定 <b>supabase_url</b> 與 <b>supabase_anon_key</b> 環境變數，部署後即可多人用同一網址操作。</div>
+        <div class="hint hidden" id="setupHint" style="margin-top:24px">正式使用前，請先套用 <b>database/patches</b> 內必要 SQL，再於 Vercel 設定 <b>supabase_url</b> 與 <b>supabase_anon_key</b> 環境變數，部署後即可多人用同一網址操作。</div>
       </section>
       <section class="login-form">
         <h2>登入系統</h2>
         <p class="muted small">部署到 Vercel 後，所有使用者用同一網址登入；註冊只需要帳號＋密碼，不需要 Email。</p>
-        <div class="field cloud-config-field">
+        <div class="field cloud-config-field hidden">
           <label>Supabase Project URL</label>
           <input id="supabaseUrl" placeholder="https://xxxxx.supabase.co">
         </div>
-        <div class="field cloud-config-field">
+        <div class="field cloud-config-field hidden">
           <label>Supabase anon public key</label>
           <input id="supabaseKey" placeholder="eyJhbGciOiJIUzI1NiIs...">
         </div>
-        <div class="row" id="cloudConfigActions">
+        <div class="row hidden" id="cloudConfigActions">
           <button class="btn ghost" id="saveConfigBtn">儲存雲端設定</button>
           <button class="btn ghost" id="clearConfigBtn">清除設定</button>
         </div>
-        <hr id="cloudConfigDivider" style="width:100%;border-color:rgba(148,163,184,.15);border-style:solid;border-bottom:0">
+        <hr id="cloudConfigDivider" class="hidden" style="width:100%;border-color:rgba(148,163,184,.15);border-style:solid;border-bottom:0">
         <div class="grid-2">
           <div class="field">
             <label>帳號</label>
@@ -61,7 +61,7 @@
           <button class="btn" id="loginBtn">登入</button>
           <button class="btn ghost" id="signupBtn">註冊作業員帳號</button>
         </div>
-        <div class="panel" id="demoPanel" style="margin:4px 0 0;padding:12px">
+        <div class="panel hidden" id="demoPanel" style="margin:4px 0 0;padding:12px">
           <div class="row">
             <button class="btn good-bg" id="demoAdminBtn">本機展示｜管理者</button>
             <button class="btn ghost" id="demoOperatorBtn">作業員</button>

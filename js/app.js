@@ -286,7 +286,7 @@ import { createBadgeHelpers } from './modules/badges.js';
     const cfg = getConfig();
     $('supabaseUrl').value = cfg.url || '';
     $('supabaseKey').value = cfg.key || '';
-    if(LOCK_SUPABASE_CONFIG && DEFAULT_SUPABASE_URL && DEFAULT_SUPABASE_ANON_KEY){
+    if(LOCK_SUPABASE_CONFIG){
       $('supabaseUrl').readOnly = true;
       $('supabaseKey').readOnly = true;
       qsa('.cloud-config-field').forEach(el => el.classList.add('hidden'));
@@ -294,6 +294,14 @@ import { createBadgeHelpers } from './modules/badges.js';
       $('cloudConfigDivider')?.classList.add('hidden');
       $('setupHint')?.classList.add('hidden');
       $('demoPanel')?.classList.add('hidden');
+    }else{
+      $('supabaseUrl').readOnly = false;
+      $('supabaseKey').readOnly = false;
+      qsa('.cloud-config-field').forEach(el => el.classList.remove('hidden'));
+      $('cloudConfigActions')?.classList.remove('hidden');
+      $('cloudConfigDivider')?.classList.remove('hidden');
+      $('setupHint')?.classList.remove('hidden');
+      $('demoPanel')?.classList.remove('hidden');
     }
   }
   function initSupabase(url, key){
