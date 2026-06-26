@@ -16,7 +16,7 @@ import { createNotificationStore } from './modules/notifications.js';
 import { compactAttachmentUrl, fileToLocalPreviewUrl, isQuotaError, safeStorageFileName } from './modules/file-utils.js';
 import { beginButtonBusy, endButtonBusy } from './modules/ui-state.js';
 import { buildRestockText, normalizedTitle, parseRestockInfo } from './modules/lcd-utils.js';
-import { csvEscape, downloadText, excelHtml, parseCsv, statRows } from './modules/export-utils.js';
+import { csvEscape, downloadText, downloadXlsx, parseCsv, statRows } from './modules/export-utils.js';
 
 (() => {
   'use strict';
@@ -2292,8 +2292,7 @@ import { csvEscape, downloadText, excelHtml, parseCsv, statRows } from './module
     const caseRows = buildCaseRows(cases);
     const itemRows = [['案件編號','品項','規格/設備資訊','SN','數量','已完成','未完成','問題描述','補料批次','貨櫃號碼','補料日期','廠商判斷']];
     state.data.case_items.filter(i => cases.some(c => c.id === i.case_id)).forEach(i => { const c = state.data.cases.find(x=>x.id===i.case_id); const r = parseRestockInfo(i.vendor_result); itemRows.push([c?.case_no || '', i.item_name, i.spec, i.sn, i.qty, i.completed_qty, i.pending_qty, i.problem_desc, r.batch || '', r.container || '', r.date || '', r.note || i.vendor_result]); });
-    const html = excelHtml([{name:'案件總表', rows:caseRows}, {name:'品項明細', rows:itemRows}]);
-    downloadText(`廠商協作案件_${toDateInput(new Date())}.xls`, html, 'application/vnd.ms-excel;charset=utf-8');
+    downloadXlsx(`廠商協作案件_${toDateInput(new Date())}.xlsx`, [{name:'案件總表', rows:caseRows}, {name:'品項明細', rows:itemRows}]);
   }
 
   function exportReportsExcel(){
@@ -2304,7 +2303,7 @@ import { csvEscape, downloadText, excelHtml, parseCsv, statRows } from './module
       {name:'地點統計', rows:statRows(groupStats(cases, c => locationName(c.location_id)), '地點')},
       {name:'負責人統計', rows:statRows(groupStats(cases, c => c.owner_name || '未指定'), '負責人')}
     ];
-    downloadText(`廠商協作統計報表_${toDateInput(new Date())}.xls`, excelHtml(sheets), 'application/vnd.ms-excel;charset=utf-8');
+    downloadXlsx(`廠商協作統計報表_${toDateInput(new Date())}.xlsx`, sheets);
   }
   function exportImportTemplate(){
     const rows = [["案件類型","案件標題","優先度","地點","回寄地點","廠商","申請人","負責人","單號","預計完成日","品項","規格","SN","數量","問題描述"], ["維修料品申請","範例：廠房A申請電源","急件","廠房 A","總公司","YS 廠商","地點負責人","白駿森","","2026-07-01","電源","百納","","5","維修備料申請"]];
