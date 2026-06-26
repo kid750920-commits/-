@@ -17,6 +17,7 @@ import { compactAttachmentUrl, fileToLocalPreviewUrl, isQuotaError, safeStorageF
 import { beginButtonBusy, endButtonBusy } from './modules/ui-state.js';
 import { buildRestockText, normalizedTitle, parseRestockInfo } from './modules/lcd-utils.js';
 import { csvEscape, downloadText, downloadXlsx, parseCsv, statRows } from './modules/export-utils.js';
+import { createBadgeHelpers } from './modules/badges.js';
 
 (() => {
   'use strict';
@@ -100,6 +101,22 @@ import { csvEscape, downloadText, downloadXlsx, parseCsv, statRows } from './mod
     onTypeChange,
     renderItemsDraftSummary,
     toast
+  });
+  const {
+    typeBadge,
+    statusBadge,
+    reviewBadge,
+    reminderBadge,
+    priorityBadge,
+    urgentBadge,
+    priorityRowClass
+  } = createBadgeHelpers({
+    safe,
+    closedStatus: CLOSED_STATUS,
+    reviewStatusValues: REVIEW_STATUS,
+    normalizeCaseType,
+    isPartCase,
+    reviewStatus
   });
 
   function seedData(){
@@ -2245,43 +2262,6 @@ import { csvEscape, downloadText, downloadXlsx, parseCsv, statRows } from './mod
 
   function vendorName(id){ return byId(state.data.vendors,id)?.vendor_name || '未指定'; }
   function locationName(id){ return byId(state.data.locations,id)?.location_name || '未指定'; }
-  function typeBadge(t){
-    const label = normalizeCaseType(t);
-    const cls = label==='程式BUG回報'?'bad-b':label==='維修料品申請'?'good-b':label==='貨櫃送修'?'violet-b':'blue-b';
-    return `<span class="badge ${cls}">${safe(label||'-')}</span>`;
-  }
-  function statusBadge(s){ const cls = CLOSED_STATUS.includes(s)?'good-b':s==='待廠商回覆'||s==='待負責人審核'?'warn-b':s==='審核退回'||s==='取消'?'bad-b':s==='已完成'?'good-b':'blue-b'; return `<span class="badge ${cls}">${safe(s||'-')}</span>`; }
-  function reviewBadge(c){
-    if(!isPartCase(c)) return '';
-    const status = reviewStatus(c);
-    if(status === REVIEW_STATUS.pending) return '<span class="badge warn-b">待審核</span>';
-    if(status === REVIEW_STATUS.rejected) return '<span class="badge bad-b">審核退回</span>';
-    return '<span class="badge good-b">審核通過</span>';
-  }
-  function reminderBadge(calc){
-    if(calc.overdue) return `<span class="badge bad-b">逾期 ${calc.overdueDays} 天</span>`;
-    if(calc.soon) return `<span class="badge warn-b">${calc.daysToDue===0?'今天到期':calc.daysToDue+' 天後到期'}</span>`;
-    if(calc.noReply) return `<span class="badge violet-b">未回覆 ${calc.noReplyDays} 天</span>`;
-    if(calc.notReceived) return '<span class="badge warn-b">收件未確認</span>';
-    return '<span class="badge good-b">正常</span>';
-  }
-
-
-  function priorityBadge(priority){
-    if(priority === '重大') return '<span class="priority-badge priority-critical">重大</span>';
-    if(priority === '急件') return '<span class="priority-badge priority-urgent">急件</span>';
-    return '<span class="priority-badge priority-normal">一般</span>';
-  }
-  function urgentBadge(calc){
-    if(!calc?.urgentNeedReply) return '';
-    return `<span class="badge bad-b">需盡快回覆｜${calc.noReplyDays} 天</span>`;
-  }
-  function priorityRowClass(priority, calc){
-    if(calc?.urgentNeedReply || priority === '重大') return 'priority-row-critical';
-    if(priority === '急件') return 'priority-row-urgent';
-    return '';
-  }
-
   function buildCaseRows(cases=visibleMainCases()){
     const header = ['案件編號','案件類型','案件標題','優先度','狀態','逾期狀態','逾期天數','廠商回覆狀態','廠商未回覆天數','上次自動提醒','地點','回寄地點','廠商','申請人','負責人','追蹤單號','回寄單號','送出日期','廠商收件日','預計完成日','提醒天數','最後回覆','問題描述'];
     const rows = cases.map(c => { const calc = calcCase(c); return [c.case_no,normalizeCaseType(c.case_type),c.title,c.priority,c.status,c.overdue_status || (calc.overdue?'已逾期':calc.soon?'快逾期':'正常'),calc.overdueDays,c.vendor_reply_status || (calc.noReply?'廠商未回覆':'正常'),calc.noReplyDays,c.last_vendor_reminder_date,locationName(c.location_id),returnLocationName(c),vendorName(c.vendor_id),c.applicant_name,c.owner_name,c.tracking_no,c.return_tracking_no,c.ship_date,c.vendor_received_date,c.due_date,c.reminder_days,c.last_reply_at,c.description]; });
