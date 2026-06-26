@@ -19,6 +19,7 @@ import { buildRestockText, normalizedTitle, parseRestockInfo } from './modules/l
 import { csvEscape, downloadText, downloadXlsx, parseCsv, statRows } from './modules/export-utils.js';
 import { createBadgeHelpers } from './modules/badges.js';
 import { createReportHelpers } from './modules/report-utils.js';
+import { createCaseTypeHelpers } from './modules/case-utils.js';
 
 (() => {
   'use strict';
@@ -80,6 +81,20 @@ import { createReportHelpers } from './modules/report-utils.js';
     compactLocalDbForStorage,
     $,
     toast
+  });
+  const {
+    normalizeCaseType,
+    isLcdCase,
+    isPartCase,
+    reviewStatus,
+    needsReview,
+    reviewRejected,
+    isMainTableCase,
+    isLocationReviewCase
+  } = createCaseTypeHelpers({
+    lcdCaseType: LCD_CASE_TYPE,
+    partCaseType: PART_CASE_TYPE,
+    reviewStatusValues: REVIEW_STATUS
   });
   const {
     typeBadge,
@@ -159,32 +174,6 @@ import { createReportHelpers } from './modules/report-utils.js';
   }
 
   function uid(){ return (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2) + Date.now()); }
-  function normalizeCaseType(type){
-    return type === '電視大屏申請' ? LCD_CASE_TYPE : type;
-  }
-  function isLcdCase(c){
-    return normalizeCaseType(c?.case_type) === LCD_CASE_TYPE;
-  }
-  function isPartCase(cOrType){
-    const type = typeof cOrType === 'string' ? cOrType : cOrType?.case_type;
-    return normalizeCaseType(type) === PART_CASE_TYPE;
-  }
-  function reviewStatus(c){
-    if(!isPartCase(c)) return REVIEW_STATUS.approved;
-    if(c?.review_status) return c.review_status;
-    if(c?.status === '待負責人審核') return REVIEW_STATUS.pending;
-    if(c?.status === '審核退回') return REVIEW_STATUS.rejected;
-    return REVIEW_STATUS.approved;
-  }
-  function needsReview(c){
-    return isPartCase(c) && reviewStatus(c) === REVIEW_STATUS.pending;
-  }
-  function reviewRejected(c){
-    return isPartCase(c) && reviewStatus(c) === REVIEW_STATUS.rejected;
-  }
-  function isMainTableCase(c){
-    return !isPartCase(c) || reviewStatus(c) === REVIEW_STATUS.approved;
-  }
   function caseOwnerMatchesCurrentUser(c){
     return currentIdentitySet().has(identityText(c?.owner_name));
   }
@@ -969,12 +958,6 @@ import { createReportHelpers } from './modules/report-utils.js';
   function visibleMainCases(){
     return visibleCases().filter(isMainTableCase);
   }
-  function isLocationReviewCase(c){
-    return isPartCase(c)
-      || String(c?.case_no || '').startsWith('PART-')
-      || Object.values(REVIEW_STATUS).includes(c?.review_status);
-  }
-
   function calcCase(c){
     const due = c.due_date ? new Date(c.due_date) : null;
     const today = todayStart();
