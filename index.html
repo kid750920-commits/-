@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>公司與廠商協作追蹤系統｜線上多人共用版</title>
+  <link rel="icon" href="data:,">
   <script>
     window.__ENV__ = {
       SUPABASE_URL: '%SUPABASE_URL%',
@@ -177,7 +178,7 @@
                 <div class="field"><label>預計完成日</label><input id="dueDate" type="date"></div>
               </div>
               <div class="grid-3">
-                <div class="field"><label>貨運 / 貨櫃 / 追蹤單號</label><input id="trackingNo" placeholder="順豐單號、貨櫃批號等"></div>
+                <div class="field"><label>貨運 / 貨櫃 / 追蹤單號</label><input id="trackingNo" placeholder="順豐單號、貨櫃批號等"><button type="button" class="btn ghost small-btn hidden" id="sfTrackingLookupBtn" style="margin-top:8px">查順豐</button></div>
                 <div class="field"><label>回寄單號</label><input id="returnTrackingNo" placeholder="廠商修好回寄單號"></div>
                 <div class="field"><label>回寄地點</label><select id="returnLocationId"></select></div>
               </div>

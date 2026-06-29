@@ -39,6 +39,7 @@ import { createWorkflowRenderer } from './modules/workflow-render.js';
   const CONFIG_KEY = APP_KEYS.config;
   const NOTIFY_KEY = APP_KEYS.notificationsRead;
   const DRAFT_KEY = APP_KEYS.newCaseDraft;
+  const SF_TRACKING_URL = 'https://www.sf-express.com/chn/sc/waybill/list';
   const CASE_LIST_PAGE_SIZE = PAGE_SIZES.caseList;
   const CLOUD_PAGE_SIZE = PAGE_SIZES.cloudFetch;
   const { accountFromAuthEmail, accountToAuthEmail, normalizeAccount } = createAccountAuthHelpers(INTERNAL_AUTH_DOMAIN);
@@ -284,7 +285,8 @@ import { createWorkflowRenderer } from './modules/workflow-render.js';
     urgentBadge,
     reminderBadge,
     priorityRowClass,
-    cardHtml
+    cardHtml,
+    sfTrackingButtonHtml
   });
   const workflowRenderer = createWorkflowRenderer({
     state,
@@ -315,7 +317,8 @@ import { createWorkflowRenderer } from './modules/workflow-render.js';
     locationName,
     returnLocationName,
     dateText,
-    dateTimeText
+    dateTimeText,
+    sfTrackingButtonHtml
   });
   const caseFormApi = createCaseFormApi({
     state,
@@ -643,6 +646,8 @@ import { createWorkflowRenderer } from './modules/workflow-render.js';
     $('notificationBtn')?.addEventListener('click', () => showSection('notifications'));
     $('markAllNotificationsBtn')?.addEventListener('click', markAllNotificationsRead);
     $('caseType').addEventListener('change', onTypeChange);
+    $('trackingNo')?.addEventListener('input', updateSfTrackingLookupButton);
+    $('sfTrackingLookupBtn')?.addEventListener('click', () => openSfTracking($('trackingNo')?.value || ''));
     $('addItemBtn').addEventListener('click', () => addItemEditor());
     $('caseForm').addEventListener('submit', createCase);
     bindNewCaseDraft();
@@ -856,8 +861,45 @@ import { createWorkflowRenderer } from './modules/workflow-render.js';
       $('caseAttachmentField').classList.toggle('hidden', isLcd);
       if(isLcd && $('attachments')) $('attachments').value = '';
     }
+    updateSfTrackingLookupButton();
     applyPartOwnerLock();
     renderItemsDraftSummary();
+  }
+
+  function isSfCase(caseRow){
+    return normalizeCaseType(caseRow?.case_type || caseRow) === '順豐送修' || String(caseRow?.case_no || '').startsWith('SF-');
+  }
+
+  function cleanTrackingNo(value){
+    return String(value || '').trim();
+  }
+
+  function sfTrackingButtonHtml(caseRow, field='tracking_no', label='查順豐'){
+    if(!isSfCase(caseRow)) return '';
+    const no = cleanTrackingNo(field === 'return_tracking_no' ? caseRow.return_tracking_no : caseRow.tracking_no);
+    if(!no) return '';
+    return `<button type="button" class="btn ghost small-btn" onclick="window.VCS.openSfTracking(decodeURIComponent('${encodeURIComponent(no)}'))">${safe(label)}</button>`;
+  }
+
+  function updateSfTrackingLookupButton(){
+    const btn = $('sfTrackingLookupBtn');
+    if(!btn) return;
+    const isSf = $('caseType')?.value === '順豐送修';
+    const hasNo = !!cleanTrackingNo($('trackingNo')?.value);
+    btn.classList.toggle('hidden', !isSf || !hasNo);
+  }
+
+  async function openSfTracking(no){
+    const trackingNo = cleanTrackingNo(no);
+    if(!trackingNo) return toast('請先填寫順豐單號', 'bad');
+    try{
+      await navigator.clipboard?.writeText(trackingNo);
+      toast(`已複製順豐單號：${trackingNo}`);
+    }catch(_){
+      toast(`請到順豐查詢頁貼上單號：${trackingNo}`, 'warn');
+    }
+    const url = `${SF_TRACKING_URL}?keyword=${encodeURIComponent(trackingNo)}`;
+    window.open(url, '_blank', 'noopener');
   }
 
   function resetItemsEditor(addDefault=true){
@@ -1546,8 +1588,8 @@ import { createWorkflowRenderer } from './modules/workflow-render.js';
         <div class="field"><label>提醒天數</label><input id="mReminderDays" type="number" min="1" value="${safe(c.reminder_days||14)}" ${editAny?'':'disabled'}></div>
       </div>
       <div class="grid-3">
-        <div class="field"><label>追蹤單號 / 貨櫃批號</label><input id="mTrackingNo" value="${safe(c.tracking_no||'')}" ${editCore?'':'disabled'}></div>
-        <div class="field"><label>回寄單號</label><input id="mReturnTrackingNo" value="${safe(c.return_tracking_no||'')}" ${editAny?'':'disabled'}></div>
+        <div class="field"><label>追蹤單號 / 貨櫃批號</label><input id="mTrackingNo" value="${safe(c.tracking_no||'')}" ${editCore?'':'disabled'}>${sfTrackingButtonHtml(c, 'tracking_no')}</div>
+        <div class="field"><label>回寄單號</label><input id="mReturnTrackingNo" value="${safe(c.return_tracking_no||'')}" ${editAny?'':'disabled'}>${sfTrackingButtonHtml(c, 'return_tracking_no', '查回寄順豐')}</div>
         <div class="field"><label>回寄地點</label><select id="mReturnLocationId" ${editAny?'':'disabled'}>${returnLocationOptions}</select></div>
       </div>
       <div class="grid-3">
@@ -2033,7 +2075,8 @@ import { createWorkflowRenderer } from './modules/workflow-render.js';
       if(!notice || canAcknowledgeNotification(notice)) markNoticeUnread(id);
       renderNotifications();
       updateNotificationUi();
-    }
+    },
+    openSfTracking
   };
   boot();
 })();

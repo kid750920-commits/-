@@ -24,7 +24,8 @@ export function createDashboardRenderer({
   urgentBadge,
   reminderBadge,
   priorityRowClass,
-  cardHtml
+  cardHtml,
+  sfTrackingButtonHtml=()=>''
 }){
   function renderDashboard(){
     if(!$('dashboardCards')) return;
@@ -115,7 +116,7 @@ export function createDashboardRenderer({
         <td>${safe(locationName(caseRow.location_id))}</td>
         <td>${safe(vendorName(caseRow.vendor_id))}</td>
         <td>${statusBadge(caseRow.status)}</td>
-        <td>${safe(caseRow.tracking_no || '-')}<div class="small muted">回寄：${safe(caseRow.return_tracking_no || '-')}</div><div class="small muted">回寄地點：${safe(returnLocationName(caseRow))}</div></td>
+        <td>${safe(caseRow.tracking_no || '-')}${sfTrackingButtonHtml(caseRow, 'tracking_no')}<div class="small muted">回寄：${safe(caseRow.return_tracking_no || '-')} ${sfTrackingButtonHtml(caseRow, 'return_tracking_no', '查回寄')}</div><div class="small muted">回寄地點：${safe(returnLocationName(caseRow))}</div></td>
         <td>${dateText(caseRow.due_date)}</td>
         <td>${reminderBadge(calc)}</td>
         <td>${safe(caseRow.owner_name || '-')}</td>

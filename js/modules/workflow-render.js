@@ -27,7 +27,8 @@ export function createWorkflowRenderer({
   locationName,
   returnLocationName,
   dateText,
-  dateTimeText
+  dateTimeText,
+  sfTrackingButtonHtml=()=>''
 }){
   function vendorPortalCases(){
     let cases = visibleMainCases();
@@ -66,7 +67,7 @@ export function createWorkflowRenderer({
       return `<div class="item-box ${priorityRowClass(caseRow.priority, calc)}">
         <div class="row" style="justify-content:space-between"><div><b>${safe(caseRow.case_no)}</b> ${typeBadge(caseRow.case_type)} ${priorityBadge(caseRow.priority)} ${urgentBadge(calc)}</div>${statusBadge(caseRow.status)}</div>
         <h3 style="margin:10px 0 8px">${safe(caseRow.title)}</h3>
-        <div class="grid-3 small muted"><div>廠商：${safe(vendorName(caseRow.vendor_id))}</div><div>預計完成：${dateText(caseRow.due_date)}</div><div>最後回覆：${dateTimeText(caseRow.last_reply_at)}</div><div>單號/批號：${safe(caseRow.tracking_no || '-')}</div><div>回寄：${safe(caseRow.return_tracking_no || '-')}</div><div>回寄地點：${safe(returnLocationName(caseRow))}</div><div>品項：${items.length} 筆</div></div>
+        <div class="grid-3 small muted"><div>廠商：${safe(vendorName(caseRow.vendor_id))}</div><div>預計完成：${dateText(caseRow.due_date)}</div><div>最後回覆：${dateTimeText(caseRow.last_reply_at)}</div><div>單號/批號：${safe(caseRow.tracking_no || '-')} ${sfTrackingButtonHtml(caseRow, 'tracking_no')}</div><div>回寄：${safe(caseRow.return_tracking_no || '-')} ${sfTrackingButtonHtml(caseRow, 'return_tracking_no', '查回寄')}</div><div>回寄地點：${safe(returnLocationName(caseRow))}</div><div>品項：${items.length} 筆</div></div>
         ${lcdSummary}
         <p class="small muted" style="line-height:1.7">${safe((caseRow.description || '').slice(0, 120))}${(caseRow.description || '').length > 120 ? '…' : ''}</p>
         <div class="row"><button class="btn ghost small-btn" onclick="window.VCS.openCase('${caseRow.id}')">查看案件</button><button class="btn small-btn" onclick="window.VCS.openCase('${caseRow.id}','replies')">回覆進度</button></div>
@@ -160,7 +161,7 @@ export function createWorkflowRenderer({
       const msg = followupMessage(c, calc);
       return `<div class="item-box ${priorityRowClass(c.priority, calc)}"><div class="row" style="justify-content:space-between"><div><b>${safe(c.case_no)}</b> ${typeBadge(c.case_type)} ${priorityBadge(c.priority)} ${urgentBadge(calc)}</div>${reminderBadge(calc)}</div>
         <h3 style="margin:10px 0 8px">${safe(c.title)}</h3>
-        <div class="grid-3 small muted"><div>廠商：${safe(vendorName(c.vendor_id))}</div><div>負責人：${safe(c.owner_name || '-')}</div><div>最後回覆：${dateTimeText(c.last_reply_at)}</div><div>預計完成：${dateText(c.due_date)}</div><div>狀態：${safe(c.status)}</div><div>單號：${safe(c.tracking_no || '-')}</div></div>
+        <div class="grid-3 small muted"><div>廠商：${safe(vendorName(c.vendor_id))}</div><div>負責人：${safe(c.owner_name || '-')}</div><div>最後回覆：${dateTimeText(c.last_reply_at)}</div><div>預計完成：${dateText(c.due_date)}</div><div>狀態：${safe(c.status)}</div><div>單號：${safe(c.tracking_no || '-')} ${sfTrackingButtonHtml(c, 'tracking_no')}</div></div>
         <div class="dropzone small" style="margin-top:10px;white-space:pre-wrap">${safe(msg)}</div>
         <div class="row" style="margin-top:10px"><button class="btn ghost small-btn" onclick="window.VCS.copyFollowup('${c.id}')">複製催覆訊息</button><button class="btn small-btn" onclick="window.VCS.markVendorFollowed('${c.id}')">寫入已催覆紀錄</button><button class="btn ghost small-btn" onclick="window.VCS.openCase('${c.id}','replies')">查看回覆</button></div>
       </div>`;
