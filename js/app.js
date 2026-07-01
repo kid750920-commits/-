@@ -39,7 +39,7 @@ import { createWorkflowRenderer } from './modules/workflow-render.js';
   const CONFIG_KEY = APP_KEYS.config;
   const NOTIFY_KEY = APP_KEYS.notificationsRead;
   const DRAFT_KEY = APP_KEYS.newCaseDraft;
-  const SF_TRACKING_URL = 'https://www.sf-express.com/chn/sc/waybill/list';
+  const SF_TRACKING_URL = 'https://www.sf-international.com/us/sc/support/querySupport/waybill';
   const CASE_LIST_PAGE_SIZE = PAGE_SIZES.caseList;
   const CLOUD_PAGE_SIZE = PAGE_SIZES.cloudFetch;
   const { accountFromAuthEmail, accountToAuthEmail, normalizeAccount } = createAccountAuthHelpers(INTERNAL_AUTH_DOMAIN);
@@ -898,8 +898,7 @@ import { createWorkflowRenderer } from './modules/workflow-render.js';
     }catch(_){
       toast(`請到順豐查詢頁貼上單號：${trackingNo}`, 'warn');
     }
-    const url = `${SF_TRACKING_URL}?keyword=${encodeURIComponent(trackingNo)}`;
-    window.open(url, '_blank', 'noopener');
+    window.open(SF_TRACKING_URL, '_blank', 'noopener');
   }
 
   function resetItemsEditor(addDefault=true){
